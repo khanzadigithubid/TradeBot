@@ -1,11 +1,9 @@
 /**
- * API Service - Backend se communicate karne ke liye
+ * API Service — All backend communication
  */
 
 const BASE_URL = "http://localhost:8000/api";
-const WS_URL = "ws://localhost:8000/ws";
-
-// ─── REST API ──────────────────────────────────────────────────────────────────
+const WS_URL   = "ws://localhost:8000/ws";
 
 async function request(endpoint, options = {}) {
   try {
@@ -14,7 +12,7 @@ async function request(endpoint, options = {}) {
       ...options,
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({ detail: "Request failed" }));
       throw new Error(err.detail || "Request failed");
     }
     return await res.json();
@@ -23,32 +21,41 @@ async function request(endpoint, options = {}) {
   }
 }
 
-// Bot Control
-export const getBotStatus = () => request("/status");
-export const startBot = (data = {}) => request("/bot/start", { method: "POST", body: JSON.stringify(data) });
-export const stopBot = () => request("/bot/stop", { method: "POST" });
+// ── Bot Control ────────────────────────────────────────────────────────────────
+export const getBotStatus    = ()     => request("/status");
+export const startBot        = (data) => request("/bot/start", { method: "POST", body: JSON.stringify(data) });
+export const stopBot         = ()     => request("/bot/stop",  { method: "POST" });
 
-// Settings
-export const getSettings = () => request("/settings");
-export const updateSettings = (data) => request("/settings", { method: "POST", body: JSON.stringify(data) });
-export const testConnection = (data) => request("/settings/test-connection", { method: "POST", body: JSON.stringify(data) });
+// ── Settings ──────────────────────────────────────────────────────────────────
+export const getSettings     = ()     => request("/settings");
+export const updateSettings  = (data) => request("/settings", { method: "POST", body: JSON.stringify(data) });
+export const testConnection  = (data) => request("/settings/test-connection", { method: "POST", body: JSON.stringify(data) });
+export const testTelegram    = ()     => request("/settings/test-telegram",   { method: "POST" });
+export const testEmail       = ()     => request("/settings/test-email",       { method: "POST" });
 
-// Market
-export const getPrice = (symbol) => request(`/market/${symbol}/price`);
-export const getMarketStats = (symbol) => request(`/market/${symbol}/stats`);
-export const getCandles = (symbol, interval = "15m", limit = 100) =>
-  request(`/market/${symbol}/candles?interval=${interval}&limit=${limit}`);
-export const getSignal = (symbol) => request(`/market/${symbol}/signal`);
+// ── Market ────────────────────────────────────────────────────────────────────
+export const getPrice        = (sym)               => request(`/market/${sym}/price`);
+export const getMarketStats  = (sym)               => request(`/market/${sym}/stats`);
+export const getCandles      = (sym, int="15m", lim=200) =>
+  request(`/market/${sym}/candles?interval=${int}&limit=${lim}`);
+export const getSignal       = (sym)               => request(`/market/${sym}/signal`);
+export const getIndicators   = (sym, int="15m", lim=200) =>
+  request(`/market/${sym}/indicators?interval=${int}&limit=${lim}`);
 
-// Trades
-export const getOpenTrades = () => request("/trades/open");
-export const getTradeHistory = (limit = 50) => request(`/trades/history?limit=${limit}`);
-export const getTradeStats = () => request("/trades/stats");
-export const manualTrade = (data) => request("/trades/manual", { method: "POST", body: JSON.stringify(data) });
-export const closeTrade = (id) => request(`/trades/${id}`, { method: "DELETE" });
+// ── Trades ────────────────────────────────────────────────────────────────────
+export const getOpenTrades   = ()         => request("/trades/open");
+export const getTradeHistory = (lim=100)  => request(`/trades/history?limit=${lim}`);
+export const getTradeStats   = ()         => request("/trades/stats");
+export const manualTrade     = (data)     => request("/trades/manual", { method: "POST", body: JSON.stringify(data) });
+export const closeTrade      = (id)       => request(`/trades/${id}`,  { method: "DELETE" });
 
-// ─── WebSocket ─────────────────────────────────────────────────────────────────
+// ── Backtesting ───────────────────────────────────────────────────────────────
+export const runBacktest     = (data)     => request("/backtest", { method: "POST", body: JSON.stringify(data) });
 
+// ── Analytics ─────────────────────────────────────────────────────────────────
+export const getAnalytics    = ()         => request("/analytics");
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
 export function createWebSocket(onMessage, onConnect, onDisconnect) {
   let ws = null;
   let reconnectTimer = null;
@@ -58,9 +65,7 @@ export function createWebSocket(onMessage, onConnect, onDisconnect) {
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
-      console.log("WebSocket connected");
       if (onConnect) onConnect();
-      // Ping every 20s
       const pingInterval = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "PING" }));
@@ -74,29 +79,21 @@ export function createWebSocket(onMessage, onConnect, onDisconnect) {
       try {
         const data = JSON.parse(event.data);
         if (onMessage) onMessage(data);
-      } catch (e) {}
+      } catch (_) {}
     };
 
     ws.onclose = () => {
       if (onDisconnect) onDisconnect();
-      if (alive) {
-        reconnectTimer = setTimeout(connect, 3000);
-      }
+      if (alive) reconnectTimer = setTimeout(connect, 3000);
     };
 
-    ws.onerror = () => {
-      ws.close();
-    };
+    ws.onerror = () => ws.close();
   }
 
   connect();
 
   return {
-    send: (data) => ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(data)),
-    close: () => {
-      alive = false;
-      clearTimeout(reconnectTimer);
-      ws && ws.close();
-    },
+    send:  (data) => ws && ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(data)),
+    close: () => { alive = false; clearTimeout(reconnectTimer); ws && ws.close(); },
   };
 }

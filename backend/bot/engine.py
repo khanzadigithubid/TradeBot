@@ -1,17 +1,25 @@
 """
-Bot Engine - Main Loop
-Runs continuously, fetches market data, generates AI signals, executes trades
+Bot Engine — Multi-Symbol Trading Loop
+Improvements over v1:
+  - Trades multiple symbols in parallel (asyncio tasks per symbol)
+  - Real-time Binance WebSocket price stream for intra-candle SL/TP
+  - Telegram notifications on start/stop/trade events
+  - Trailing stop integrated via TradeManager
+  - Backtesting endpoint supported via backtester module
 """
 
 import asyncio
-import time
 import logging
 from datetime import datetime
-from bot.binance_client import BinanceClient
-from bot.indicators import generate_ai_signal
-from bot.trade_manager import TradeManager
-from bot import config as cfg
-from bot.settings_store import load_settings, save_settings
+
+from bot.binance_client  import BinanceClient
+from bot.indicators      import generate_ai_signal
+from bot.trade_manager   import TradeManager
+from bot.notifier        import TelegramNotifier
+from bot.email_notifier  import EmailNotifier
+from bot.price_stream    import PriceStream
+from bot                 import config as cfg
+from bot.settings_store  import load_settings, save_settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,195 +30,308 @@ logger = logging.getLogger(__name__)
 
 class TradingEngine:
     def __init__(self):
-        # Start with defaults from config.py
+        # ── Load config ────────────────────────────────────────────────────────
         self.config = {
-            "BINANCE_API_KEY": cfg.BINANCE_API_KEY,
-            "BINANCE_SECRET_KEY": cfg.BINANCE_SECRET_KEY,
-            "TESTNET": cfg.TESTNET,
-            "TRADE_QUANTITY_PERCENT": cfg.TRADE_QUANTITY_PERCENT,
-            "MAX_OPEN_TRADES": cfg.MAX_OPEN_TRADES,
-            "STOP_LOSS_PERCENT": cfg.STOP_LOSS_PERCENT,
-            "TAKE_PROFIT_PERCENT": cfg.TAKE_PROFIT_PERCENT,
-            "EMA_FAST": cfg.EMA_FAST,
-            "EMA_SLOW": cfg.EMA_SLOW,
-            "RSI_PERIOD": cfg.RSI_PERIOD,
-            "RSI_OVERBOUGHT": cfg.RSI_OVERBOUGHT,
-            "RSI_OVERSOLD": cfg.RSI_OVERSOLD,
-            "MACD_FAST": cfg.MACD_FAST,
-            "MACD_SLOW": cfg.MACD_SLOW,
-            "MACD_SIGNAL": cfg.MACD_SIGNAL,
-            "BB_PERIOD": cfg.BB_PERIOD,
-            "BB_STD": cfg.BB_STD,
+            "BINANCE_API_KEY":       cfg.BINANCE_API_KEY,
+            "BINANCE_SECRET_KEY":    cfg.BINANCE_SECRET_KEY,
+            "TESTNET":               cfg.TESTNET,
+            "TRADE_QUANTITY_PERCENT":cfg.TRADE_QUANTITY_PERCENT,
+            "MAX_OPEN_TRADES":       cfg.MAX_OPEN_TRADES,
+            "STOP_LOSS_PERCENT":     cfg.STOP_LOSS_PERCENT,
+            "TAKE_PROFIT_PERCENT":   cfg.TAKE_PROFIT_PERCENT,
+            "TRAILING_STOP":         cfg.TRAILING_STOP,
+            "TRAILING_STOP_PERCENT": cfg.TRAILING_STOP_PERCENT,
+            "EMA_FAST":              cfg.EMA_FAST,
+            "EMA_SLOW":              cfg.EMA_SLOW,
+            "RSI_PERIOD":            cfg.RSI_PERIOD,
+            "RSI_OVERBOUGHT":        cfg.RSI_OVERBOUGHT,
+            "RSI_OVERSOLD":          cfg.RSI_OVERSOLD,
+            "MACD_FAST":             cfg.MACD_FAST,
+            "MACD_SLOW":             cfg.MACD_SLOW,
+            "MACD_SIGNAL":           cfg.MACD_SIGNAL,
+            "BB_PERIOD":             cfg.BB_PERIOD,
+            "BB_STD":                cfg.BB_STD,
+            "TELEGRAM_BOT_TOKEN":    cfg.TELEGRAM_BOT_TOKEN,
+            "TELEGRAM_CHAT_ID":      cfg.TELEGRAM_CHAT_ID,
+            "EMAIL_SENDER":          cfg.EMAIL_SENDER,
+            "EMAIL_APP_PASSWORD":    cfg.EMAIL_APP_PASSWORD,
+            "EMAIL_RECEIVER":        cfg.EMAIL_RECEIVER,
         }
 
-        # Override with any saved UI settings (persistent across restarts)
+        # Override with UI-saved settings
         saved = load_settings()
         if saved:
             self.config.update(saved)
             logger.info(f"Loaded saved settings: {list(saved.keys())}")
 
-        self.current_symbol = saved.get("SYMBOL", cfg.DEFAULT_SYMBOL)
-        self.interval = saved.get("INTERVAL", cfg.CANDLE_INTERVAL)
-
-        self.client = BinanceClient(
-            api_key=self.config.get("BINANCE_API_KEY", ""),
-            secret_key=self.config.get("BINANCE_SECRET_KEY", ""),
-            testnet=self.config.get("TESTNET", True)
+        # Single-symbol legacy support + multi-symbol list
+        self.current_symbol  = saved.get("SYMBOL",   cfg.DEFAULT_SYMBOL)
+        self.interval        = saved.get("INTERVAL",  cfg.CANDLE_INTERVAL)
+        self.active_symbols: list[str] = saved.get(
+            "ACTIVE_SYMBOLS", cfg.ACTIVE_SYMBOLS
         )
 
-        self.trade_manager = TradeManager(self.client, self.config)
-        self.running = False
-        self.last_signal = {}
-        self.callbacks = []
+        # ── Sub-systems ────────────────────────────────────────────────────────
+        self._build_client()
+
+        self.notifier = TelegramNotifier(
+            self.config.get("TELEGRAM_BOT_TOKEN", ""),
+            self.config.get("TELEGRAM_CHAT_ID", ""),
+        )
+
+        self.email_notifier = EmailNotifier(
+            sender_email   = self.config.get("EMAIL_SENDER", ""),
+            app_password   = self.config.get("EMAIL_APP_PASSWORD", ""),
+            receiver_email = self.config.get("EMAIL_RECEIVER", ""),
+        )
+
+        self.trade_manager = TradeManager(
+            self.client, self.config, self.notifier, self.email_notifier
+        )
+
+        self.price_stream = PriceStream(
+            testnet=self.config.get("TESTNET", True)
+        )
+        self.price_stream.add_callback(self._on_price_tick)
+
+        self.running      = False
+        self.last_signal: dict[str, dict] = {}    # symbol → latest signal
+        self.callbacks    = []
+
+        # Per-symbol tasks
+        self._symbol_tasks: dict[str, asyncio.Task] = {}
+
+    # ── Client builder ─────────────────────────────────────────────────────────
+
+    def _build_client(self):
+        self.client = BinanceClient(
+            api_key    = self.config.get("BINANCE_API_KEY",    ""),
+            secret_key = self.config.get("BINANCE_SECRET_KEY", ""),
+            testnet    = self.config.get("TESTNET", True),
+        )
+
+    # ── Config update ──────────────────────────────────────────────────────────
 
     def update_config(self, new_config: dict):
-        """Update bot configuration at runtime and persist to disk"""
         self.config.update(new_config)
 
-        # Rebuild Binance client if keys or testnet changed
-        if any(k in new_config for k in ("BINANCE_API_KEY", "BINANCE_SECRET_KEY", "TESTNET")):
-            self.client = BinanceClient(
-                api_key=self.config.get("BINANCE_API_KEY", ""),
-                secret_key=self.config.get("BINANCE_SECRET_KEY", ""),
-                testnet=self.config.get("TESTNET", True)
-            )
+        if any(k in new_config for k in
+               ("BINANCE_API_KEY", "BINANCE_SECRET_KEY", "TESTNET")):
+            self._build_client()
             self.trade_manager.client = self.client
+            self.price_stream.testnet = self.config.get("TESTNET", True)
+
+        if any(k in new_config for k in
+               ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")):
+            self.notifier = TelegramNotifier(
+                self.config.get("TELEGRAM_BOT_TOKEN", ""),
+                self.config.get("TELEGRAM_CHAT_ID", ""),
+            )
+            self.trade_manager.notifier = self.notifier
+
+        if any(k in new_config for k in
+               ("EMAIL_SENDER", "EMAIL_APP_PASSWORD", "EMAIL_RECEIVER")):
+            self.email_notifier = EmailNotifier(
+                sender_email   = self.config.get("EMAIL_SENDER", ""),
+                app_password   = self.config.get("EMAIL_APP_PASSWORD", ""),
+                receiver_email = self.config.get("EMAIL_RECEIVER", ""),
+            )
+            self.trade_manager.email_notifier = self.email_notifier
 
         self.trade_manager.config = self.config
 
-        # Persist to disk so settings survive restart
+        # Handle active symbols update
+        if "ACTIVE_SYMBOLS" in new_config:
+            self.active_symbols = new_config["ACTIVE_SYMBOLS"]
+
         save_settings(new_config)
         logger.info(f"Config updated & saved: {list(new_config.keys())}")
 
-    def add_callback(self, callback):
-        """Add WebSocket broadcast callback"""
-        self.callbacks.append(callback)
+    # ── WebSocket broadcast ────────────────────────────────────────────────────
+
+    def add_callback(self, cb):
+        self.callbacks.append(cb)
 
     async def broadcast(self, data: dict):
-        """Broadcast data to all WebSocket clients"""
         for cb in self.callbacks:
             try:
                 await cb(data)
             except Exception:
                 pass
 
+    # ── Price tick handler (from Binance WS stream) ────────────────────────────
+
+    async def _on_price_tick(self, symbol: str, price: float):
+        """Called on every aggTrade tick — checks SL/TP immediately."""
+        closed = self.trade_manager.check_stop_loss_take_profit(symbol, price)
+        for trade in closed:
+            await self.broadcast({
+                "type":   "TRADE_CLOSED",
+                "trade":  trade,
+                "reason": trade.get("close_reason"),
+            })
+
+    # ── Interval helpers ───────────────────────────────────────────────────────
+
     def get_interval_seconds(self) -> int:
-        """Convert candle interval to seconds"""
         mapping = {
             "1m": 60, "3m": 180, "5m": 300,
             "15m": 900, "30m": 1800,
-            "1h": 3600, "4h": 14400, "1d": 86400
+            "1h": 3600, "4h": 14400, "1d": 86400,
         }
         return mapping.get(self.interval, 900)
 
-    async def run_cycle(self):
-        """Single bot cycle - analyze and trade"""
-        try:
-            symbol = self.current_symbol
+    # ── Single symbol cycle ────────────────────────────────────────────────────
 
-            # 1. Fetch market data
+    async def run_cycle(self, symbol: str):
+        """One analysis + trade cycle for a single symbol."""
+        try:
             df = self.client.get_klines(symbol, self.interval, cfg.CANDLE_LIMIT)
             if df.empty:
-                logger.warning(f"No data for {symbol}")
+                logger.warning(f"[{symbol}] No candle data")
                 return
 
-            # 2. Get current price
             current_price = self.client.get_ticker_price(symbol)
             if not current_price:
-                current_price = float(df['close'].iloc[-1])
+                current_price = float(df["close"].iloc[-1])
 
-            # 3. Generate AI signal
             signal = generate_ai_signal(df, self.config)
-            signal["symbol"] = symbol
+            signal["symbol"]    = symbol
             signal["timestamp"] = datetime.utcnow().isoformat()
-            self.last_signal = signal
+            self.last_signal[symbol] = signal
 
             logger.info(
-                f"[{symbol}] Price: {current_price:.4f} | "
-                f"Signal: {signal['action']} | "
-                f"Confidence: {signal['confidence']}% | "
-                f"RSI: {signal['rsi']:.1f}"
+                f"[{symbol}] ${current_price:.4f} | "
+                f"{signal['action']} {signal['confidence']}% | "
+                f"RSI:{signal['rsi']:.1f}"
             )
 
-            # 4. Check stop loss / take profit
-            self.trade_manager.check_stop_loss_take_profit(symbol, current_price)
-
-            # 5. Execute trade based on signal
+            # BUY
             if signal["action"] == "BUY" and signal["confidence"] >= 60:
-                # Check if already have open trade for this symbol
-                open_for_symbol = [
+                already_open = [
                     t for t in self.trade_manager.get_open_trades()
                     if t["symbol"] == symbol
                 ]
-                if not open_for_symbol:
+                if not already_open:
                     trade = self.trade_manager.execute_buy(symbol, signal)
                     if trade:
-                        logger.info(f"✅ BUY executed: {symbol} @ {current_price} | SL: {trade['stop_loss']} | TP: {trade['take_profit']}")
                         await self.broadcast({
-                            "type": "TRADE_EXECUTED",
-                            "trade": trade,
-                            "signal": signal
+                            "type":   "TRADE_EXECUTED",
+                            "trade":  trade,
+                            "signal": signal,
                         })
 
+            # SELL
             elif signal["action"] == "SELL" and signal["confidence"] >= 60:
-                # Close all open buy trades for this symbol
-                open_trades = [
+                open_for_sym = [
                     t for t in self.trade_manager.get_open_trades()
                     if t["symbol"] == symbol
                 ]
-                for trade in open_trades:
-                    result = self.trade_manager.execute_sell(trade["id"], current_price, "SIGNAL")
+                for trade in open_for_sym:
+                    result = self.trade_manager.execute_sell(
+                        trade["id"], current_price, "SIGNAL"
+                    )
                     if result:
-                        logger.info(f"✅ SELL executed: {symbol} @ {current_price} | PnL: {result['pnl']} USDT")
                         await self.broadcast({
-                            "type": "TRADE_CLOSED",
-                            "trade": result,
-                            "signal": signal
+                            "type":   "TRADE_CLOSED",
+                            "trade":  result,
+                            "signal": signal,
                         })
 
-            # 6. Broadcast current state
+            # Broadcast state update
             await self.broadcast({
-                "type": "SIGNAL_UPDATE",
-                "signal": signal,
-                "stats": self.trade_manager.get_stats(),
+                "type":        "SIGNAL_UPDATE",
+                "symbol":      symbol,
+                "signal":      signal,
+                "stats":       self.trade_manager.get_stats(),
                 "open_trades": self.trade_manager.get_open_trades(),
-                "balance": self.client.get_balance("USDT"),
+                "balance":     self.client.get_balance("USDT"),
             })
 
         except Exception as e:
-            logger.error(f"Error in bot cycle: {e}")
+            logger.error(f"[{symbol}] Cycle error: {e}")
+
+    # ── Per-symbol loop ────────────────────────────────────────────────────────
+
+    async def _symbol_loop(self, symbol: str):
+        """Runs indefinitely for one symbol — one candle-interval per cycle."""
+        logger.info(f"[{symbol}] Loop started")
+        while self.running:
+            await self.run_cycle(symbol)
+            sleep_sec = self.get_interval_seconds()
+            logger.info(f"[{symbol}] Next cycle in {sleep_sec}s")
+            await asyncio.sleep(sleep_sec)
+        logger.info(f"[{symbol}] Loop stopped")
+
+    # ── Start / Stop ───────────────────────────────────────────────────────────
 
     async def start(self):
-        """Start the trading bot"""
+        """Start all symbol loops + price stream."""
         self.running = True
         self.trade_manager.bot_running = True
-        logger.info("🚀 Trading Bot Started!")
-        logger.info(f"Symbol: {self.current_symbol} | Interval: {self.interval} | Testnet: {cfg.TESTNET}")
 
-        while self.running:
-            await self.run_cycle()
-            sleep_time = self.get_interval_seconds()
-            logger.info(f"⏳ Next cycle in {sleep_time}s...")
-            await asyncio.sleep(sleep_time)
+        symbols = self._resolve_symbols()
+        logger.info(f"🚀 Bot started — symbols: {symbols} | interval: {self.interval}")
+
+        # Start real-time price stream for all symbols
+        try:
+            await self.price_stream.subscribe_many(symbols)
+        except Exception as e:
+            logger.warning(f"Price stream failed to start: {e} (SL/TP will use candle-level checking)")
+
+        # Launch a loop task per symbol
+        for sym in symbols:
+            if sym not in self._symbol_tasks or self._symbol_tasks[sym].done():
+                task = asyncio.create_task(self._symbol_loop(sym), name=f"loop-{sym}")
+                self._symbol_tasks[sym] = task
+
+        # Telegram + Email alert
+        self.notifier.bot_started(symbols, self.interval)
+        self.email_notifier.bot_started(symbols, self.interval)
+
+        # Wait for all tasks to finish (they run until self.running = False)
+        await asyncio.gather(*self._symbol_tasks.values(), return_exceptions=True)
 
     def stop(self):
-        """Stop the trading bot"""
+        """Stop all symbol loops + price stream."""
         self.running = False
         self.trade_manager.bot_running = False
-        logger.info("🛑 Trading Bot Stopped!")
+        for task in self._symbol_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._symbol_tasks.clear()
+        # Stop price stream (fire-and-forget via create_task)
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.price_stream.stop_all())
+        except Exception:
+            pass
+        self.notifier.bot_stopped()
+        self.email_notifier.bot_stopped()
+        logger.info("🛑 Bot stopped")
+
+    def _resolve_symbols(self) -> list[str]:
+        """Return the active symbol list (multi or single)."""
+        if self.config.get("MULTI_SYMBOL_MODE", False):
+            return [s.upper() for s in self.active_symbols]
+        return [self.current_symbol.upper()]
+
+    # ── Status ─────────────────────────────────────────────────────────────────
 
     def get_status(self) -> dict:
-        """Get current bot status"""
         return {
-            "running": self.running,
-            "symbol": self.current_symbol,
-            "interval": self.interval,
-            "testnet": self.config.get("TESTNET", True),
-            "last_signal": self.last_signal,
-            "stats": self.trade_manager.get_stats(),
-            "open_trades": self.trade_manager.get_open_trades(),
+            "running":        self.running,
+            "symbol":         self.current_symbol,
+            "active_symbols": self._resolve_symbols(),
+            "interval":       self.interval,
+            "testnet":        self.config.get("TESTNET", True),
+            "multi_symbol":   self.config.get("MULTI_SYMBOL_MODE", False),
+            "last_signal":    self.last_signal,
+            "stats":          self.trade_manager.get_stats(),
+            "open_trades":    self.trade_manager.get_open_trades(),
         }
 
 
-# Global engine instance
+# Global singleton
 engine = TradingEngine()

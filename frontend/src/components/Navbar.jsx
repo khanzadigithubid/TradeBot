@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, History, Settings, Zap, Wifi, WifiOff } from "lucide-react";
+import { LayoutDashboard, History, Settings, Zap, Wifi, WifiOff, BarChart2, FlaskConical } from "lucide-react";
 
 export default function Navbar({ connected, botRunning }) {
   return (
@@ -10,13 +10,21 @@ export default function Navbar({ connected, botRunning }) {
       </div>
 
       <div className="navbar-links">
-        <NavLink to="/" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <NavLink to="/" end className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
           <LayoutDashboard size={14} />
           Dashboard
         </NavLink>
         <NavLink to="/history" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
           <History size={14} />
           History
+        </NavLink>
+        <NavLink to="/analytics" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+          <BarChart2 size={14} />
+          Analytics
+        </NavLink>
+        <NavLink to="/backtest" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+          <FlaskConical size={14} />
+          Backtest
         </NavLink>
         <NavLink to="/settings" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
           <Settings size={14} />

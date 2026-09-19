@@ -16,6 +16,7 @@ backend/data/settings.json
 backend/data/trades.json
 .env
 *.env
+backend/.env
 
 # Node
 node_modules/

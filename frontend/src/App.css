@@ -499,3 +499,118 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Button icons inline ── */
 .btn-test, .btn-save, .btn-export { display:flex; align-items:center; gap:6px; }
+
+/* ═══════════════════════════════════
+   ANALYTICS PAGE
+═══════════════════════════════════ */
+.analytics-charts-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.analytics-chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  min-width: 260px;
+}
+.analytics-bottom-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.analytics-bottom-row .analytics-chart-card {
+  flex: 1;
+  min-width: 300px;
+}
+
+/* Monthly bars */
+.monthly-bars { display: flex; flex-direction: column; gap: 8px; }
+.monthly-bar-item { display: flex; flex-direction: column; gap: 3px; }
+.monthly-bar-track {
+  height: 8px; background: var(--bg-input);
+  border-radius: 4px; overflow: hidden;
+}
+.monthly-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.monthly-bar-label {
+  display: flex; justify-content: space-between;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.monthly-month { color: var(--text-dim); }
+
+/* ═══════════════════════════════════
+   CHART SUB-PANELS (RSI / MACD)
+═══════════════════════════════════ */
+.chart-sub-panel {
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.chart-sub-label {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 12px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--text-dim);
+  background: var(--bg-card2);
+  border-bottom: 1px solid var(--border);
+}
+.chart-sub-levels {
+  display: flex; gap: 10px; margin-left: auto; font-size: 10px;
+}
+
+/* Chart overlay toggle buttons */
+.chart-toggles {
+  display: flex; gap: 4px; margin-left: auto;
+}
+.chart-toggle-btn {
+  padding: 3px 9px; border-radius: 3px; font-size: 10px; font-weight: 700;
+  border: 1px solid var(--border2); background: var(--bg-input);
+  color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+  letter-spacing: 0.3px;
+}
+.chart-toggle-btn:hover { border-color: var(--blue); color: var(--blue-light); }
+.chart-toggle-btn.active {
+  background: rgba(41,98,255,0.18);
+  color: var(--blue-light);
+  border-color: var(--blue);
+}
+
+/* ═══════════════════════════════════
+   SETTINGS — NEW ADDITIONS
+═══════════════════════════════════ */
+/* Symbol pill multi-select */
+.symbol-pill-grid {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.symbol-pill {
+  padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--border2); background: var(--bg-input);
+  color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+}
+.symbol-pill:hover { border-color: var(--blue-light); color: var(--text); }
+.symbol-pill.active {
+  background: rgba(41,98,255,0.18);
+  color: var(--blue-light);
+  border-color: var(--blue);
+}
+
+/* Key status banner */
+.key-status { padding: 8px 13px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; }
+.key-status.saved { background: rgba(38,166,154,0.08); color: var(--green); border: 1px solid rgba(38,166,154,0.2); }
+
+/* ═══════════════════════════════════
+   BACKTEST PAGE
+═══════════════════════════════════ */
+.backtest-page .settings-card { margin-bottom: 0; }
+
+/* ═══════════════════════════════════
+   RESPONSIVE ADDITIONS
+═══════════════════════════════════ */
+@media (max-width: 1024px) {
+  .analytics-charts-row { flex-direction: column; }
+  .analytics-bottom-row { flex-direction: column; }
+}
+@media (max-width: 768px) {
+  .chart-toggles { gap: 2px; }
+  .chart-toggle-btn { padding: 2px 6px; font-size: 9px; }
+}
