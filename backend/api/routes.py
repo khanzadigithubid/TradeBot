@@ -186,10 +186,24 @@ def test_email():
 
 @router.get("/market/{symbol}/price")
 def get_price(symbol: str):
-    price = engine.client.get_ticker_price(symbol.upper())
-    if price is None:
-        raise HTTPException(404, "Symbol not found")
-    return {"symbol": symbol.upper(), "price": price}
+    import requests as _req
+    # Try multiple endpoints
+    urls = [
+        f"https://api.binance.com/api/v3/ticker/price?symbol={symbol.upper()}",
+        f"https://api1.binance.com/api/v3/ticker/price?symbol={symbol.upper()}",
+        f"https://api2.binance.com/api/v3/ticker/price?symbol={symbol.upper()}",
+        f"https://api3.binance.com/api/v3/ticker/price?symbol={symbol.upper()}",
+    ]
+    for url in urls:
+        try:
+            r = _req.get(url, timeout=8)
+            if r.status_code == 200:
+                data = r.json()
+                if "price" in data:
+                    return {"symbol": symbol.upper(), "price": float(data["price"])}
+        except Exception:
+            continue
+    raise HTTPException(404, "Symbol not found")
 
 @router.get("/market/{symbol}/stats")
 def get_market_stats(symbol: str):
