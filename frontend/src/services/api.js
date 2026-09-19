@@ -2,8 +2,8 @@
  * API Service — All backend communication
  */
 
-const BASE_URL = "http://localhost:8000/api";
-const WS_URL   = "ws://localhost:8000/ws";
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+const WS_URL   = import.meta.env.VITE_WS_URL  || "ws://localhost:8000/ws";
 
 async function request(endpoint, options = {}) {
   try {
