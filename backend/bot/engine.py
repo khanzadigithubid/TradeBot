@@ -14,7 +14,7 @@ from datetime import datetime
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from bot.binance_client  import BinanceClient
 from bot.indicators      import generate_ai_signal
@@ -22,7 +22,8 @@ from bot.trade_manager   import TradeManager
 from bot.notifier        import TelegramNotifier
 from bot.email_notifier  import EmailNotifier
 from bot.price_stream    import PriceStream
-from bot                 import config as cfg
+from bot.config          import *
+import bot.config        as cfg
 from bot.settings_store  import load_settings, save_settings
 
 logging.basicConfig(
