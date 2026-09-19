@@ -205,9 +205,12 @@ export default function Settings() {
 
           <div className="form-row">
             <div className="form-group" style={{ flex: 2 }}>
-              <label>API Key</label>
+              <label htmlFor="api_key">API Key</label>
               <div className="input-with-icon">
-                <input type={showKey ? "text" : "password"} name="api_key"
+                <input
+                  id="api_key"
+                  type={showKey ? "text" : "password"}
+                  name="api_key"
                   placeholder="Paste your Binance API key"
                   value={form.api_key} onChange={handleChange}
                   className="form-input" autoComplete="off" />
@@ -217,9 +220,12 @@ export default function Settings() {
               </div>
             </div>
             <div className="form-group" style={{ flex: 2 }}>
-              <label>Secret Key</label>
+              <label htmlFor="secret_key">Secret Key</label>
               <div className="input-with-icon">
-                <input type={showSecret ? "text" : "password"} name="secret_key"
+                <input
+                  id="secret_key"
+                  type={showSecret ? "text" : "password"}
+                  name="secret_key"
                   placeholder="Paste your Binance Secret key"
                   value={form.secret_key} onChange={handleChange}
                   className="form-input" autoComplete="off" />

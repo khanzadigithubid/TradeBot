@@ -614,3 +614,86 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .chart-toggles { gap: 2px; }
   .chart-toggle-btn { padding: 2px 6px; font-size: 9px; }
 }
+
+/* ═══════════════════════════════════
+   RESPONSIVE — MOBILE IMPROVEMENTS
+═══════════════════════════════════ */
+
+/* Navbar mobile */
+@media (max-width: 640px) {
+  .navbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .navbar-brand { order: 1; }
+  .navbar-status { order: 2; margin-left: auto; }
+  .navbar-links {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    gap: 2px;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .navbar-links::-webkit-scrollbar { display: none; }
+  .nav-link { white-space: nowrap; padding: 5px 10px; font-size: 11px; }
+
+  /* Dashboard */
+  .stats-grid { grid-template-columns: 1fr 1fr !important; gap: 8px; }
+  .page-header { flex-direction: column; gap: 10px; }
+  .header-controls { flex-wrap: wrap; gap: 6px; }
+  .signal-panel { flex-direction: column; gap: 14px; }
+
+  /* Chart */
+  .chart-header { flex-wrap: wrap; gap: 6px; }
+  .chart-toggles { width: 100%; justify-content: flex-start; }
+  .chart-live-price { margin-left: 0 !important; }
+
+  /* Settings */
+  .form-row { flex-direction: column; }
+  .settings-footer { flex-direction: column; align-items: stretch; }
+  .btn-save { width: 100%; justify-content: center; }
+
+  /* History table */
+  .table-wrapper { font-size: 11px; }
+  .trade-table th, .trade-table td { padding: 7px 8px; }
+
+  /* Analytics */
+  .analytics-charts-row { flex-direction: column; }
+  .analytics-bottom-row { flex-direction: column; }
+
+  /* Trades grid */
+  .trades-grid { grid-template-columns: 1fr !important; }
+
+  /* History summary */
+  .history-summary { flex-wrap: wrap; }
+  .summary-card { min-width: calc(50% - 5px); }
+}
+
+@media (max-width: 400px) {
+  .stats-grid { grid-template-columns: 1fr !important; }
+  .summary-card { min-width: 100%; }
+  .brand-name { font-size: 13px; }
+}
+
+/* Better touch targets */
+@media (hover: none) {
+  .btn-bot, .btn-save, .btn-test, .btn-export {
+    padding: 10px 20px;
+    min-height: 44px;
+  }
+  .nav-link { padding: 8px 12px; }
+  .symbol-pill { padding: 6px 14px; }
+  .filter-tab { padding: 8px 16px; }
+}
+
+/* Smooth scrolling */
+html { scroll-behavior: smooth; }
+
+/* Better table on mobile */
+@media (max-width: 768px) {
+  .table-wrapper { border-radius: 6px; }
+  .time-col { display: none; }
+}
