@@ -14,10 +14,23 @@ from datetime import datetime
 import sys
 import os
 
-# Add backend directory to path so imports work on Render
-_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _backend_dir not in sys.path:
-    sys.path.insert(0, _backend_dir)
+# engine.py is inside backend/bot/
+# So __file__ = .../backend/bot/engine.py
+# dirname(__file__) = .../backend/bot/
+# dirname(dirname(__file__)) = .../backend/   ← this is what we need
+_bot_dir     = os.path.dirname(os.path.abspath(__file__))   # backend/bot
+_backend_dir = os.path.dirname(_bot_dir)                     # backend
+
+for _p in [_backend_dir, _bot_dir]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+# Now import config directly as a module
+import importlib.util as _ilu
+_cfg_path = os.path.join(_bot_dir, "config.py")
+_spec     = _ilu.spec_from_file_location("cfg", _cfg_path)
+cfg       = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(cfg)
 
 from bot.binance_client  import BinanceClient
 from bot.indicators      import generate_ai_signal
@@ -25,7 +38,6 @@ from bot.trade_manager   import TradeManager
 from bot.notifier        import TelegramNotifier
 from bot.email_notifier  import EmailNotifier
 from bot.price_stream    import PriceStream
-import bot.config        as cfg
 from bot.settings_store  import load_settings, save_settings
 
 logging.basicConfig(
