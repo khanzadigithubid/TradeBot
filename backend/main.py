@@ -12,12 +12,14 @@ import logging
 import sys
 import os
 
-# Ensure backend directory is in path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add backend directory to Python path
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
-from api.routes   import router
+from api.routes    import router
 from api.websocket import manager
-from bot.engine   import engine
+from bot.engine    import engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
