@@ -95,12 +95,17 @@ class BinanceClient:
     # ─── Market Data ───────────────────────────────────────────────────────────
 
     def get_klines(self, symbol: str, interval: str = "15m", limit: int = 200) -> pd.DataFrame:
-        """Fetch OHLCV candle data"""
-        data = self._get("/v3/klines", {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit
-        })
+        """Fetch OHLCV candle data — uses public Binance API (no auth needed)"""
+        # Always use public Binance for market data (works on all servers)
+        public_url = "https://api.binance.com/api/v3/klines"
+        try:
+            response = requests.get(public_url, params={
+                "symbol": symbol, "interval": interval, "limit": limit
+            }, timeout=10)
+            data = response.json()
+        except Exception:
+            data = self._get("/v3/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+
         if isinstance(data, list):
             df = pd.DataFrame(data, columns=[
                 'timestamp', 'open', 'high', 'low', 'close', 'volume',
@@ -114,15 +119,25 @@ class BinanceClient:
         return pd.DataFrame()
 
     def get_ticker_price(self, symbol: str) -> Optional[float]:
-        """Get current price"""
-        data = self._get("/v3/ticker/price", {"symbol": symbol})
+        """Get current price — uses public Binance API"""
+        try:
+            resp = requests.get("https://api.binance.com/api/v3/ticker/price",
+                                params={"symbol": symbol}, timeout=10)
+            data = resp.json()
+        except Exception:
+            data = self._get("/v3/ticker/price", {"symbol": symbol})
         if "price" in data:
             return float(data["price"])
         return None
 
     def get_24h_stats(self, symbol: str) -> dict:
-        """Get 24h price statistics"""
-        return self._get("/v3/ticker/24hr", {"symbol": symbol})
+        """Get 24h price statistics — uses public Binance API"""
+        try:
+            resp = requests.get("https://api.binance.com/api/v3/ticker/24hr",
+                                params={"symbol": symbol}, timeout=10)
+            return resp.json()
+        except Exception:
+            return self._get("/v3/ticker/24hr", {"symbol": symbol})
 
     def get_order_book(self, symbol: str, limit: int = 10) -> dict:
         """Get order book"""
