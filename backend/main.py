@@ -9,6 +9,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
+import sys
+import os
+
+# Ensure backend directory is in path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from api.routes   import router
 from api.websocket import manager
