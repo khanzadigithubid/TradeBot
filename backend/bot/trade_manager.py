@@ -54,11 +54,12 @@ def round_step_size(quantity: float, step_size: float) -> float:
 # ── Trade Manager ──────────────────────────────────────────────────────────────
 
 class TradeManager:
-    def __init__(self, client: BinanceClient, config: dict, notifier=None, email_notifier=None):
-        self.client         = client
-        self.config         = config
-        self.notifier       = notifier        # TelegramNotifier
-        self.email_notifier = email_notifier  # EmailNotifier
+    def __init__(self, client: BinanceClient, config: dict, notifier=None, email_notifier=None, resend_notifier=None):
+        self.client          = client
+        self.config          = config
+        self.notifier        = notifier        # TelegramNotifier
+        self.email_notifier  = email_notifier  # EmailNotifier (Gmail SMTP)
+        self.resend_notifier = resend_notifier # ResendNotifier (works on Render)
         self.trades: List[dict] = load_trades()
 
         # Rebuild open_trades dict from file (survives restarts)
@@ -173,11 +174,13 @@ class TradeManager:
         self._peak_prices[trade["id"]] = price
         save_trades(self.trades)
 
-        # Telegram + Email
+        # Telegram + Email + Resend
         if self.notifier:
             self.notifier.trade_opened(trade)
         if self.email_notifier:
             self.email_notifier.trade_opened(trade)
+        if self.resend_notifier:
+            self.resend_notifier.trade_opened(trade)
 
         logger.info(f"✅ BUY {symbol} @ {price} | SL: {stop_loss} | TP: {take_profit}")
         return trade
@@ -218,11 +221,13 @@ class TradeManager:
         self._peak_prices.pop(trade_id, None)
         save_trades(self.trades)
 
-        # Telegram + Email
+        # Telegram + Email + Resend
         if self.notifier:
             self.notifier.trade_closed(trade)
         if self.email_notifier:
             self.email_notifier.trade_closed(trade)
+        if self.resend_notifier:
+            self.resend_notifier.trade_closed(trade)
 
         logger.info(f"✅ SELL {symbol} @ {current_price} | PnL: {pnl:.4f} ({reason})")
         return trade

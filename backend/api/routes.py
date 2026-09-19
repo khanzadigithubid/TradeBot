@@ -175,11 +175,19 @@ def test_telegram():
 
 @router.post("/settings/test-email")
 def test_email():
-    """Send a test email"""
+    """Send a test email via Gmail SMTP"""
     result = engine.email_notifier.test_email()
     if result:
         return {"success": True, "message": "Test email sent — check your inbox"}
-    return {"success": False, "message": "Email not configured or send failed. Check credentials."}
+    return {"success": False, "message": "Email not configured or send failed."}
+
+@router.post("/settings/test-resend")
+def test_resend():
+    """Send a test email via Resend API"""
+    result = engine.resend_notifier.test_email()
+    if result:
+        return {"success": True, "message": "Resend test email sent — check your inbox"}
+    return {"success": False, "message": "Resend not configured or send failed."}
 
 
 # ─── Market Data ───────────────────────────────────────────────────────────────

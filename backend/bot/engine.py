@@ -24,6 +24,7 @@ from bot.indicators      import generate_ai_signal
 from bot.trade_manager   import TradeManager
 from bot.notifier        import TelegramNotifier
 from bot.email_notifier  import EmailNotifier
+from bot.resend_notifier import ResendNotifier
 from bot.price_stream    import PriceStream
 from bot                 import config as cfg
 from bot.settings_store  import load_settings, save_settings
@@ -63,6 +64,7 @@ class TradingEngine:
             "EMAIL_SENDER":          cfg.EMAIL_SENDER,
             "EMAIL_APP_PASSWORD":    cfg.EMAIL_APP_PASSWORD,
             "EMAIL_RECEIVER":        cfg.EMAIL_RECEIVER,
+            "RESEND_API_KEY":        cfg.RESEND_API_KEY,
         }
 
         # Override with UI-saved settings
@@ -92,8 +94,14 @@ class TradingEngine:
             receiver_email = self.config.get("EMAIL_RECEIVER", ""),
         )
 
+        self.resend_notifier = ResendNotifier(
+            api_key        = self.config.get("RESEND_API_KEY", ""),
+            receiver_email = self.config.get("EMAIL_RECEIVER", ""),
+            sender_email   = self.config.get("EMAIL_SENDER", ""),
+        )
+
         self.trade_manager = TradeManager(
-            self.client, self.config, self.notifier, self.email_notifier
+            self.client, self.config, self.notifier, self.email_notifier, self.resend_notifier
         )
 
         self.price_stream = PriceStream(
@@ -144,6 +152,14 @@ class TradingEngine:
                 receiver_email = self.config.get("EMAIL_RECEIVER", ""),
             )
             self.trade_manager.email_notifier = self.email_notifier
+
+        if any(k in new_config for k in ("RESEND_API_KEY", "EMAIL_RECEIVER")):
+            self.resend_notifier = ResendNotifier(
+                api_key        = self.config.get("RESEND_API_KEY", ""),
+                receiver_email = self.config.get("EMAIL_RECEIVER", ""),
+                sender_email   = self.config.get("EMAIL_SENDER", ""),
+            )
+            self.trade_manager.resend_notifier = self.resend_notifier
 
         self.trade_manager.config = self.config
 
@@ -292,9 +308,10 @@ class TradingEngine:
                 task = asyncio.create_task(self._symbol_loop(sym), name=f"loop-{sym}")
                 self._symbol_tasks[sym] = task
 
-        # Telegram + Email alert
+        # Telegram + Email + Resend alert
         self.notifier.bot_started(symbols, self.interval)
         self.email_notifier.bot_started(symbols, self.interval)
+        self.resend_notifier.bot_started(symbols, self.interval)
 
         # Wait for all tasks to finish (they run until self.running = False)
         await asyncio.gather(*self._symbol_tasks.values(), return_exceptions=True)
@@ -316,6 +333,7 @@ class TradingEngine:
             pass
         self.notifier.bot_stopped()
         self.email_notifier.bot_stopped()
+        self.resend_notifier.bot_stopped()
         logger.info("🛑 Bot stopped")
 
     def _resolve_symbols(self) -> list[str]:

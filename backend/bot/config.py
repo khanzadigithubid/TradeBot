@@ -28,6 +28,9 @@ EMAIL_SENDER       = os.getenv("EMAIL_SENDER", "")
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD", "")
 EMAIL_RECEIVER     = os.getenv("EMAIL_RECEIVER", "")
 
+# ── Resend Email (works on Render) ─────────────────────────────────────────────
+RESEND_API_KEY     = os.getenv("RESEND_API_KEY", "")
+
 # ── Trading Settings ───────────────────────────────────────────────────────────
 DEFAULT_SYMBOL          = "BTCUSDT"
 TRADE_QUANTITY_PERCENT  = 10      # Portfolio ka kitna % ek trade mein lagao
