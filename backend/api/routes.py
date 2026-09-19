@@ -199,7 +199,7 @@ def get_market_stats(symbol: str):
 def get_candles(symbol: str, interval: str = "15m", limit: int = 100):
     df = engine.client.get_klines(symbol.upper(), interval, limit)
     if df.empty:
-        raise HTTPException(404, "No data")
+        return []
     return df[["timestamp", "open", "high", "low", "close", "volume"]].to_dict(orient="records")
 
 @router.get("/market/{symbol}/signal")
@@ -207,7 +207,16 @@ def get_signal(symbol: str):
     from bot.indicators import generate_ai_signal
     df = engine.client.get_klines(symbol.upper(), engine.interval, 200)
     if df.empty:
-        raise HTTPException(404, "No data")
+        return {
+            "action": "HOLD", "confidence": 50, "price": 0,
+            "rsi": 50, "ema_fast": 0, "ema_slow": 0,
+            "macd": 0, "macd_signal": 0,
+            "bb_upper": 0, "bb_lower": 0,
+            "stop_loss": None, "take_profit": None,
+            "signals": ["Waiting for market data..."],
+            "buy_score": 0, "sell_score": 0,
+            "symbol": symbol.upper()
+        }
     signal = generate_ai_signal(df, engine.config)
     signal["symbol"] = symbol.upper()
     return signal
