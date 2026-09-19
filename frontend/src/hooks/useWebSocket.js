@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
-const WS_URL = "ws://localhost:8000/ws";
+const WS_URL = "wss://tradebot-omuy.onrender.com/ws";
 
 export function useWebSocket() {
   const [connected, setConnected] = useState(false);
