@@ -18,7 +18,7 @@ from bot.trade_manager   import TradeManager
 from bot.notifier        import TelegramNotifier
 from bot.email_notifier  import EmailNotifier
 from bot.price_stream    import PriceStream
-from bot                 import config as cfg
+import bot.config as cfg
 from bot.settings_store  import load_settings, save_settings
 
 logging.basicConfig(
