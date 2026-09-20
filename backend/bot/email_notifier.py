@@ -26,7 +26,7 @@ class EmailNotifier:
         self.enabled        = bool(sender_email and app_password and receiver_email)
 
     def send(self, subject: str, html_body: str) -> bool:
-        """Send an HTML email via Gmail SMTP"""
+        """Send an HTML email via Gmail SMTP, fallback to Resend if SMTP fails"""
         if not self.enabled:
             return False
         try:
@@ -41,7 +41,31 @@ class EmailNotifier:
                 server.sendmail(self.sender_email, self.receiver_email, msg.as_string())
             return True
         except Exception as e:
-            logger.warning(f"Email send failed: {e}")
+            logger.warning(f"Gmail SMTP failed: {e} — trying Resend fallback")
+            return self._resend_fallback(subject, html_body)
+
+    def _resend_fallback(self, subject: str, html_body: str) -> bool:
+        """Fallback: send via Resend API when Gmail SMTP is blocked (e.g. Render)"""
+        import os, requests as _req
+        api_key = os.getenv("RESEND_API_KEY", "")
+        receiver = self.receiver_email
+        if not api_key or not receiver:
+            return False
+        try:
+            resp = _req.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"from": "AI TradeBot <onboarding@resend.dev>", "to": [receiver],
+                      "subject": subject, "html": html_body},
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                logger.info("📧 Email sent via Resend fallback")
+                return True
+            logger.warning(f"Resend fallback failed: {resp.status_code}")
+            return False
+        except Exception as e2:
+            logger.warning(f"Resend fallback error: {e2}")
             return False
 
     # ── Trade alerts ───────────────────────────────────────────────────────────

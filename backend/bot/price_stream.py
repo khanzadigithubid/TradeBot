@@ -77,6 +77,7 @@ class PriceStream:
         """
         Connects to Binance aggTrade stream and fires callbacks.
         Auto-reconnects with exponential backoff on disconnect.
+        Stops retrying on HTTP 451 (geographic/legal block).
         """
         stream_name = f"{symbol.lower()}@aggTrade"
         url         = f"{self._base}/{stream_name}"
@@ -102,6 +103,12 @@ class PriceStream:
                 break
             except Exception as e:
                 if symbol not in self._active:
+                    break
+                err_str = str(e)
+                # HTTP 451 = geographic/legal block — stop retrying
+                if "451" in err_str:
+                    logger.warning(f"[PriceStream] {symbol} blocked (HTTP 451) — price stream disabled. SL/TP will use candle-level checking.")
+                    self._active.discard(symbol)
                     break
                 logger.warning(f"[PriceStream] {symbol} disconnected: {e} — retry in {backoff}s")
                 await asyncio.sleep(backoff)
