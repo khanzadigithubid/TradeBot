@@ -12,6 +12,7 @@ import StatCard from "../components/StatCard";
 import SignalBadge from "../components/SignalBadge";
 import OpenTradeCard from "../components/OpenTradeCard";
 import PriceChart from "../components/PriceChart";
+import ManualTradePanel from "../components/ManualTradePanel";
 
 const PAIRS     = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT"];
 const INTERVALS = ["1m","5m","15m","30m","1h","4h","1d"];
@@ -248,6 +249,9 @@ export default function Dashboard({ wsMessage }) {
           )}
         </div>
       )}
+
+      {/* ── Manual Trade ── */}
+      <ManualTradePanel currentSymbol={symbol} onTradeExecuted={fetchAll} />
 
       {/* ── Open Trades ── */}
       <div className="section">
