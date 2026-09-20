@@ -42,8 +42,12 @@ class SettingsUpdate(BaseModel):
     email_sender:           Optional[str]   = None
     email_app_password:     Optional[str]   = None
     email_receiver:         Optional[str]   = None
-    multi_symbol_mode:      Optional[bool]  = None
-    active_symbols:         Optional[List[str]] = None
+    multi_symbol_mode:          Optional[bool]  = None
+    active_symbols:             Optional[List[str]] = None
+    discord_webhook_url:        Optional[str]   = None
+    daily_loss_limit_percent:   Optional[float] = None
+    sentiment_filter:           Optional[bool]  = None
+    mtf_enabled:                Optional[bool]  = None
 
 class ManualTradeRequest(BaseModel):
     symbol:   str
@@ -110,6 +114,11 @@ def get_settings():
         "rsi_oversold":           engine.config.get("RSI_OVERSOLD", 30),
         "telegram_configured":    bool(engine.config.get("TELEGRAM_BOT_TOKEN")),
         "email_configured":       bool(engine.config.get("EMAIL_SENDER") and engine.config.get("EMAIL_APP_PASSWORD")),
+        "resend_configured":      bool(engine.config.get("RESEND_API_KEY")),
+        "discord_configured":     bool(engine.config.get("DISCORD_WEBHOOK_URL")),
+        "daily_loss_limit":       engine.config.get("DAILY_LOSS_LIMIT_PERCENT", 5.0),
+        "sentiment_filter":       engine.config.get("SENTIMENT_FILTER", True),
+        "mtf_enabled":            engine.config.get("MTF_ENABLED", True),
         "multi_symbol_mode":      engine.config.get("MULTI_SYMBOL_MODE", False),
         "active_symbols":         engine.active_symbols,
         "supported_pairs":        cfg.SUPPORTED_PAIRS,
@@ -144,10 +153,14 @@ def update_settings(settings: SettingsUpdate):
     if settings.email_sender           is not None: update["EMAIL_SENDER"]           = settings.email_sender
     if settings.email_app_password     is not None: update["EMAIL_APP_PASSWORD"]     = settings.email_app_password
     if settings.email_receiver         is not None: update["EMAIL_RECEIVER"]         = settings.email_receiver
-    if settings.multi_symbol_mode      is not None: update["MULTI_SYMBOL_MODE"]      = settings.multi_symbol_mode
+    if settings.multi_symbol_mode      is not None: update["MULTI_SYMBOL_MODE"]          = settings.multi_symbol_mode
     if settings.active_symbols         is not None:
         engine.active_symbols = settings.active_symbols
         update["ACTIVE_SYMBOLS"] = settings.active_symbols
+    if settings.discord_webhook_url      is not None: update["DISCORD_WEBHOOK_URL"]       = settings.discord_webhook_url
+    if settings.daily_loss_limit_percent is not None: update["DAILY_LOSS_LIMIT_PERCENT"]  = settings.daily_loss_limit_percent
+    if settings.sentiment_filter         is not None: update["SENTIMENT_FILTER"]          = settings.sentiment_filter
+    if settings.mtf_enabled              is not None: update["MTF_ENABLED"]               = settings.mtf_enabled
 
     if update:
         engine.update_config(update)
@@ -188,6 +201,26 @@ def test_resend():
     if result:
         return {"success": True, "message": "Resend test email sent — check your inbox"}
     return {"success": False, "message": "Resend not configured or send failed."}
+
+@router.post("/settings/test-discord")
+def test_discord():
+    """Send a test Discord message"""
+    result = engine.discord_notifier.test_discord()
+    if result:
+        return {"success": True, "message": "Discord test message sent!"}
+    return {"success": False, "message": "Discord webhook not configured."}
+
+@router.get("/market/sentiment")
+def get_sentiment(symbol: str = "BTCUSDT"):
+    """Get Fear & Greed index + news sentiment"""
+    from bot.sentiment import get_combined_sentiment
+    return get_combined_sentiment(symbol)
+
+@router.get("/market/fear-greed")
+def get_fear_greed():
+    """Get Fear & Greed Index"""
+    from bot.sentiment import get_fear_greed_index
+    return get_fear_greed_index()
 
 
 # ─── Market Data ───────────────────────────────────────────────────────────────

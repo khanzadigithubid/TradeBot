@@ -129,23 +129,62 @@ export default function Dashboard({ wsMessage }) {
             <div className="signal-label">AI Signal</div>
             <SignalBadge action={signal.action} confidence={signal.confidence} />
             <div className="signal-price">${Number(signal.price).toLocaleString()}</div>
+            {/* MTF Trend */}
+            {signal.mtf && (
+              <div style={{ marginTop: 8 }}>
+                <div className="ind-header">Multi-Timeframe</div>
+                {Object.entries(signal.mtf.timeframes || {}).map(([tf, data]) => (
+                  <div key={tf} className="indicator-item">
+                    <span className="ind-label">{tf}</span>
+                    <span className={`ind-value ${data.trend==="BULLISH"?"green":data.trend==="BEARISH"?"red":"white"}`}>
+                      {data.trend}
+                    </span>
+                  </div>
+                ))}
+                <div className="indicator-item">
+                  <span className="ind-label">Overall</span>
+                  <span className={`ind-value ${signal.mtf.mtf_trend==="BULLISH"?"green":signal.mtf.mtf_trend==="BEARISH"?"red":"white"}`}>
+                    {signal.mtf.mtf_trend}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="signal-indicators">
             <div className="ind-header">Indicators</div>
             {[
-              { label:"RSI",      val: signal.rsi,      cls: signal.rsi>70?"red":signal.rsi<30?"green":"white" },
-              { label:"EMA Fast", val: signal.ema_fast,  cls:"white" },
-              { label:"EMA Slow", val: signal.ema_slow,  cls:"white" },
-              { label:"MACD",     val: signal.macd,      cls: signal.macd>0?"green":"red" },
-              { label:"BB Upper", val: signal.bb_upper,  cls:"white" },
-              { label:"BB Lower", val: signal.bb_lower,  cls:"white" },
-            ].map(({ label, val, cls }) => (
+              { label:"RSI",         val: signal.rsi,        cls: signal.rsi>70?"red":signal.rsi<30?"green":"white" },
+              { label:"Stoch K",     val: signal.stoch_k,    cls: signal.stoch_k>80?"red":signal.stoch_k<20?"green":"white" },
+              { label:"Williams %R", val: signal.williams_r, cls: signal.williams_r>-20?"red":signal.williams_r<-80?"green":"white" },
+              { label:"VWAP",        val: signal.vwap,       cls: signal.price > signal.vwap ? "green" : "red" },
+              { label:"EMA Fast",    val: signal.ema_fast,   cls:"white" },
+              { label:"EMA Slow",    val: signal.ema_slow,   cls:"white" },
+              { label:"MACD",        val: signal.macd,       cls: signal.macd>0?"green":"red" },
+              { label:"BB Upper",    val: signal.bb_upper,   cls:"white" },
+              { label:"BB Lower",    val: signal.bb_lower,   cls:"white" },
+              { label:"SuperTrend",  val: signal.supertrend, cls: signal.supertrend==="BULLISH"?"green":signal.supertrend==="BEARISH"?"red":"white", isText: true },
+            ].map(({ label, val, cls, isText }) => (
               <div key={label} className="indicator-item">
                 <span className="ind-label">{label}</span>
-                <span className={`ind-value ${cls}`}>{Number(val||0).toFixed(2)}</span>
+                <span className={`ind-value ${cls}`}>
+                  {isText ? val : Number(val||0).toFixed(2)}
+                </span>
               </div>
             ))}
+            {/* Support / Resistance */}
+            {signal.support && (
+              <>
+                <div className="indicator-item">
+                  <span className="ind-label">Support</span>
+                  <span className="ind-value green">${Number(signal.support).toFixed(2)}</span>
+                </div>
+                <div className="indicator-item">
+                  <span className="ind-label">Resistance</span>
+                  <span className="ind-value red">${Number(signal.resistance).toFixed(2)}</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="signal-reasons">
@@ -159,16 +198,35 @@ export default function Dashboard({ wsMessage }) {
               <div className="score-bar-wrap">
                 <div className="score-label green-text">BUY {signal.buy_score}</div>
                 <div className="score-track">
-                  <div className="score-fill green-fill" style={{width:`${Math.min(signal.buy_score,100)}%`}} />
+                  <div className="score-fill green-fill" style={{width:`${Math.min(signal.buy_score/2.5,100)}%`}} />
                 </div>
               </div>
               <div className="score-bar-wrap">
                 <div className="score-label red-text">SELL {signal.sell_score}</div>
                 <div className="score-track">
-                  <div className="score-fill red-fill" style={{width:`${Math.min(signal.sell_score,100)}%`}} />
+                  <div className="score-fill red-fill" style={{width:`${Math.min(signal.sell_score/2.5,100)}%`}} />
                 </div>
               </div>
             </div>
+
+            {/* Sentiment */}
+            {signal.sentiment?.fear_greed && (
+              <div style={{ marginTop: 10 }}>
+                <div className="ind-header">Market Sentiment</div>
+                <div className="indicator-item">
+                  <span className="ind-label">Fear & Greed</span>
+                  <span className={`ind-value ${signal.sentiment.fear_greed.value < 40 ? "green" : signal.sentiment.fear_greed.value > 60 ? "red" : "white"}`}>
+                    {signal.sentiment.fear_greed.value} — {signal.sentiment.fear_greed.category}
+                  </span>
+                </div>
+                <div className="indicator-item">
+                  <span className="ind-label">Overall</span>
+                  <span className={`ind-value ${signal.sentiment.overall==="BULLISH"?"green":signal.sentiment.overall==="BEARISH"?"red":"white"}`}>
+                    {signal.sentiment.overall}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {signal.stop_loss && (

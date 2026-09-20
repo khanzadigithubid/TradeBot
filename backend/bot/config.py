@@ -31,6 +31,23 @@ EMAIL_RECEIVER     = os.getenv("EMAIL_RECEIVER", "")
 # ── Resend Email (works on Render) ─────────────────────────────────────────────
 RESEND_API_KEY     = os.getenv("RESEND_API_KEY", "")
 
+# ── Discord Notifications ──────────────────────────────────────────────────────
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+
+# ── WhatsApp (Twilio) ──────────────────────────────────────────────────────────
+TWILIO_ACCOUNT_SID  = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN   = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER  = os.getenv("TWILIO_FROM_NUMBER", "")  # whatsapp:+14155238886
+TWILIO_TO_NUMBER    = os.getenv("TWILIO_TO_NUMBER", "")    # whatsapp:+92xxxxxxxxxx
+
+# ── Risk Management Advanced ───────────────────────────────────────────────────
+DAILY_LOSS_LIMIT_PERCENT = float(os.getenv("DAILY_LOSS_LIMIT_PERCENT", "5.0"))
+SENTIMENT_FILTER         = os.getenv("SENTIMENT_FILTER", "True").lower() not in ("false", "0", "no")
+
+# ── Multi-Timeframe ────────────────────────────────────────────────────────────
+MTF_ENABLED   = os.getenv("MTF_ENABLED", "True").lower() not in ("false", "0", "no")
+MTF_INTERVALS = ["15m", "1h", "4h"]
+
 # ── Trading Settings ───────────────────────────────────────────────────────────
 DEFAULT_SYMBOL          = "BTCUSDT"
 TRADE_QUANTITY_PERCENT  = 10      # Portfolio ka kitna % ek trade mein lagao
