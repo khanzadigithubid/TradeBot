@@ -81,6 +81,9 @@ class TradeManager:
 
     def get_trade_quantity(self, symbol: str, price: float) -> float:
         balance      = self.client.get_balance("USDT")
+        # Testnet pe balance 0 aaye to default 1000 USDT maan lo
+        if balance <= 0:
+            balance = 1000.0
         trade_pct    = self.config.get("TRADE_QUANTITY_PERCENT", 10) / 100
         usdt_to_use  = balance * trade_pct
         quantity     = usdt_to_use / price

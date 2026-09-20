@@ -348,10 +348,11 @@ async def manual_trade(req: ManualTradeRequest):
         if already:
             raise HTTPException(400, f"Already have an open trade for {symbol}. Close it first before buying again.")
 
-        # Balance check
-        balance = engine.client.get_balance("USDT")
-        if balance <= 0:
-            raise HTTPException(400, "USDT balance is 0 or could not be fetched. Check your Binance API keys in Settings.")
+        # Balance check — Testnet pe skip karo (fake money)
+        if not engine.config.get("TESTNET", True):
+            balance = engine.client.get_balance("USDT")
+            if balance <= 0:
+                raise HTTPException(400, "USDT balance is 0 or could not be fetched. Check your Binance API keys in Settings.")
 
         df     = engine.client.get_klines(symbol, engine.interval, 200)
         if df.empty:
