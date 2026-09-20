@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   getBotStatus, startBot, stopBot,
-  getTradeStats, getOpenTrades, getSignal, getMarketStats
+  getTradeStats, getOpenTrades, getSignal, getMarketStats, getSettings
 } from "../services/api";
 import StatCard from "../components/StatCard";
 import SignalBadge from "../components/SignalBadge";
@@ -27,17 +27,26 @@ export default function Dashboard({ wsMessage }) {
   const [timeframe,   setTimeframe]   = useState("15m");
   const [btnLoading,  setBtnLoading]  = useState(false);
   const [livePrice,   setLivePrice]   = useState(null);
+  const [allPairs,    setAllPairs]    = useState({ crypto: PAIRS, forex: [] });
 
   const fetchAll = useCallback(async () => {
-    const [s, st, tr, sig, mkt] = await Promise.allSettled([
+    const [s, st, tr, sig, mkt, sets] = await Promise.allSettled([
       getBotStatus(), getTradeStats(), getOpenTrades(),
       getSignal(symbol), getMarketStats(symbol),
+      getSettings(),
     ]);
-    if (s.status   === "fulfilled") setBotRunning(s.value.running);
-    if (st.status  === "fulfilled") setStats(st.value);
-    if (tr.status  === "fulfilled") setOpenTrades(tr.value);
-    if (sig.status === "fulfilled") { setSignal(sig.value); setLivePrice(sig.value?.price ?? null); }
-    if (mkt.status === "fulfilled") setMarketStats(mkt.value);
+    if (s.status    === "fulfilled") setBotRunning(s.value.running);
+    if (st.status   === "fulfilled") setStats(st.value);
+    if (tr.status   === "fulfilled") setOpenTrades(tr.value);
+    if (sig.status  === "fulfilled") { setSignal(sig.value); setLivePrice(sig.value?.price ?? null); }
+    if (mkt.status  === "fulfilled") setMarketStats(mkt.value);
+    if (sets.status === "fulfilled") {
+      const d = sets.value;
+      setAllPairs({
+        crypto: d.crypto_pairs || d.supported_pairs || PAIRS,
+        forex:  d.forex_pairs  || [],
+      });
+    }
   }, [symbol]);
 
   useEffect(() => {
@@ -65,6 +74,13 @@ export default function Dashboard({ wsMessage }) {
     setBtnLoading(false);
   }
 
+  // Symbol change hone pe livePrice reset karo
+  function handleSymbolChange(e) {
+    setSymbol(e.target.value);
+    setLivePrice(null);
+    setSignal(null);
+  }
+
   const pnlPos   = (stats?.total_pnl || 0) >= 0;
   const change24 = marketStats ? parseFloat(marketStats.priceChangePercent) : null;
   const chgPos   = change24 != null && change24 >= 0;
@@ -80,8 +96,15 @@ export default function Dashboard({ wsMessage }) {
         </div>
         <div className="header-controls">
           <div className="select-wrap">
-            <select className="pair-select" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-              {PAIRS.map((p) => <option key={p}>{p}</option>)}
+            <select className="pair-select" value={symbol} onChange={handleSymbolChange}>
+              <optgroup label="── Crypto ──">
+                {allPairs.crypto.map((p) => <option key={p}>{p}</option>)}
+              </optgroup>
+              {allPairs.forex.length > 0 && (
+                <optgroup label="── Forex ──">
+                  {allPairs.forex.map((p) => <option key={p}>{p}</option>)}
+                </optgroup>
+              )}
             </select>
             <ChevronDown size={12} className="select-arrow" />
           </div>

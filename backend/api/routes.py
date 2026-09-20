@@ -97,6 +97,7 @@ def stop_bot():
 
 @router.get("/settings")
 def get_settings():
+    from bot.config import CRYPTO_PAIRS, FOREX_PAIRS
     return {
         "testnet":                engine.config.get("TESTNET", False),
         "symbol":                 engine.current_symbol,
@@ -121,7 +122,10 @@ def get_settings():
         "mtf_enabled":            engine.config.get("MTF_ENABLED", True),
         "multi_symbol_mode":      engine.config.get("MULTI_SYMBOL_MODE", False),
         "active_symbols":         engine.active_symbols,
-        "supported_pairs":        cfg.SUPPORTED_PAIRS,
+        # Separated lists for frontend grouping
+        "crypto_pairs":           CRYPTO_PAIRS,
+        "forex_pairs":            FOREX_PAIRS,
+        "supported_pairs":        CRYPTO_PAIRS + FOREX_PAIRS,
         "supported_intervals":    ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
     }
 

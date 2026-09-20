@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Play, BarChart2, TrendingUp, TrendingDown, DollarSign, Award, AlertTriangle } from "lucide-react";
-import { runBacktest } from "../services/api";
+import { runBacktest, getSettings } from "../services/api";
 
-const PAIRS     = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","AVAXUSDT"];
 const INTERVALS = ["1m","5m","15m","30m","1h","4h","1d"];
 
 function MetricCard({ icon: Icon, title, value, sub, color = "blue" }) {
@@ -26,9 +25,21 @@ export default function Backtest() {
     initial_balance:      1000,
     confidence_threshold: 60,
   });
-  const [result,  setResult]  = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState(null);
+  const [cryptoPairs, setCryptoPairs] = useState([]);
+  const [forexPairs,  setForexPairs]  = useState([]);
+  const [result,      setResult]      = useState(null);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState(null);
+
+  // Load pairs from API
+  useEffect(() => {
+    getSettings()
+      .then(d => {
+        if (d.crypto_pairs?.length) setCryptoPairs(d.crypto_pairs);
+        if (d.forex_pairs?.length)  setForexPairs(d.forex_pairs);
+      })
+      .catch(() => {});
+  }, []);
 
   function handleChange(e) {
     const { name, value, type } = e.target;
@@ -43,8 +54,8 @@ export default function Backtest() {
     try {
       const res = await runBacktest(form);
       setResult(res);
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err.message);
     }
     setLoading(false);
   }
@@ -56,11 +67,11 @@ export default function Backtest() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Backtesting</h1>
-          <p className="page-sub">Simulate strategy on historical data — no real trades placed</p>
+          <p className="page-sub">Simulate strategy on historical data — no real trades</p>
         </div>
       </div>
 
-      {/* Config form */}
+      {/* ── Config form ── */}
       <div className="settings-card">
         <div className="settings-section-title"><BarChart2 size={15} /> Backtest Configuration</div>
         <form onSubmit={handleRun}>
@@ -68,7 +79,20 @@ export default function Backtest() {
             <div className="form-group">
               <label>Symbol</label>
               <select name="symbol" value={form.symbol} onChange={handleChange} className="form-select">
-                {PAIRS.map(p => <option key={p}>{p}</option>)}
+                {cryptoPairs.length > 0 ? (
+                  <>
+                    <optgroup label="── Crypto ──">
+                      {cryptoPairs.map(p => <option key={p}>{p}</option>)}
+                    </optgroup>
+                    {forexPairs.length > 0 && (
+                      <optgroup label="── Forex ──">
+                        {forexPairs.map(p => <option key={p}>{p}</option>)}
+                      </optgroup>
+                    )}
+                  </>
+                ) : (
+                  <option>BTCUSDT</option>
+                )}
               </select>
             </div>
             <div className="form-group">
@@ -95,23 +119,25 @@ export default function Backtest() {
               <small>Only enter trades above this</small>
             </div>
           </div>
-          <div style={{ marginTop: 12 }}>
-            <button type="submit" className="btn-bot btn-start" disabled={loading}>
-              {loading ? <><span className="spinner" /> Running...</> : <><Play size={13} fill="currentColor" /> Run Backtest</>}
+          <div style={{ marginTop: 14 }}>
+            <button type="submit" className="btn-bot btn-start" disabled={loading}
+              style={{ width: "100%", justifyContent: "center", maxWidth: 300 }}>
+              {loading
+                ? <><span className="spinner" /> Running...</>
+                : <><Play size={13} fill="currentColor" /> Run Backtest</>
+              }
             </button>
           </div>
         </form>
       </div>
 
-      {error && (
-        <div className="settings-note live-warning">{error}</div>
-      )}
+      {error && <div className="settings-note live-warning">{error}</div>}
 
-      {/* Results */}
+      {/* ── Results ── */}
       {m && (
         <>
-          {/* Metrics grid */}
-          <div className="stats-grid" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
+          {/* Metrics Row 1 */}
+          <div className="bt-metrics-grid">
             <MetricCard icon={DollarSign} title="Final Balance"
               value={`$${m.final_balance?.toFixed(2)}`}
               sub={`Started $${m.initial_balance}`}
@@ -130,7 +156,8 @@ export default function Backtest() {
               color="blue" />
           </div>
 
-          <div className="stats-grid" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
+          {/* Metrics Row 2 */}
+          <div className="bt-metrics-grid">
             <MetricCard icon={AlertTriangle} title="Max Drawdown"
               value={`$${m.max_drawdown?.toFixed(4)}`}
               sub={`${m.max_drawdown_percent?.toFixed(2)}%`}
@@ -157,13 +184,15 @@ export default function Backtest() {
                   Simulated Trades ({result.trades.length})
                 </span>
               </div>
-              <div className="table-wrapper" style={{ border: "none", borderRadius: 0 }}>
+
+              {/* Desktop table */}
+              <div className="table-wrapper bt-table-desktop" style={{ border: "none", borderRadius: 0 }}>
                 <table className="trade-table">
                   <thead>
                     <tr>
                       <th>Symbol</th><th>Entry</th><th>Exit</th>
                       <th>P&L (USDT)</th><th>P&L %</th>
-                      <th>Close Reason</th><th>Confidence</th>
+                      <th>Reason</th><th>Confidence</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -193,6 +222,41 @@ export default function Backtest() {
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile cards */}
+              <div className="bt-cards-mobile">
+                {result.trades.map(t => {
+                  const win = (t.pnl||0) > 0;
+                  return (
+                    <div key={t.id} className={`bt-trade-card ${win?"bt-win":"bt-loss"}`}>
+                      <div className="bt-card-row">
+                        <span className="symbol-tag">{t.symbol}</span>
+                        <span className={win?"pnl-pos":"pnl-neg"} style={{ fontWeight:800, fontSize:14 }}>
+                          {win?"+":""}{Number(t.pnl||0).toFixed(4)} USDT
+                        </span>
+                      </div>
+                      <div className="bt-card-row">
+                        <span style={{ color:"var(--text-dim)", fontSize:11 }}>Entry</span>
+                        <span>${Number(t.entry_price).toLocaleString()}</span>
+                      </div>
+                      <div className="bt-card-row">
+                        <span style={{ color:"var(--text-dim)", fontSize:11 }}>Exit</span>
+                        <span>{t.exit_price ? `$${Number(t.exit_price).toLocaleString()}` : "—"}</span>
+                      </div>
+                      <div className="bt-card-row">
+                        <span style={{ color:"var(--text-dim)", fontSize:11 }}>P&L %</span>
+                        <span className={win?"pnl-pos":"pnl-neg"}>{win?"+":""}{Number(t.pnl_percent||0).toFixed(2)}%</span>
+                      </div>
+                      <div className="bt-card-row">
+                        <span style={{ color:"var(--text-dim)", fontSize:11 }}>Reason</span>
+                        <span className={`reason-tag ${{TAKE_PROFIT:"reason-tp",STOP_LOSS:"reason-sl",TRAILING_STOP:"reason-sl",SIGNAL:"reason-signal",END_OF_DATA:"reason-manual"}[t.close_reason]||""}`}>
+                          {t.close_reason}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -76,15 +76,30 @@ CANDLE_INTERVAL = "15m"
 CANDLE_LIMIT    = 200
 
 # ── Supported Trading Pairs ────────────────────────────────────────────────────
-SUPPORTED_PAIRS = [
-    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT",
-    "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT",
-    "DOTUSDT", "MATICUSDT",
+
+# Crypto Pairs (Binance)
+CRYPTO_PAIRS = [
+    # Top Crypto
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT",
+    # Mid Cap Crypto
+    "LINKUSDT", "UNIUSDT", "LTCUSDT", "ATOMUSDT", "NEARUSDT",
+    "APTUSDT",  "ARBUSDT",  "OPUSDT",  "INJUSDT",  "SUIUSDT",
+    "TRXUSDT",  "XLMUSDT",  "VETUSDT",  "FILUSDT",  "ICPUSDT",
 ]
 
+# Forex Pairs (Binance supports these as crypto-collateralized)
+FOREX_PAIRS = [
+    "EURUSDT",  "GBPUSDT",  "JPYUSDT",
+    "AUDUSTDT", "CADUSTDT", "CHFUSDT",
+]
+
+# All supported pairs combined
+SUPPORTED_PAIRS = CRYPTO_PAIRS + FOREX_PAIRS
+
 # ── Multi-Symbol Settings ──────────────────────────────────────────────────────
-MULTI_SYMBOL_MODE    = False      # True = trade multiple pairs simultaneously
-ACTIVE_SYMBOLS       = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+MULTI_SYMBOL_MODE    = False
+ACTIVE_SYMBOLS       = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "LINKUSDT"]
 
 # ── WebSocket Settings ─────────────────────────────────────────────────────────
 WS_HOST = "0.0.0.0"

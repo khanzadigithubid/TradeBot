@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Shield, BarChart2, Bot, Save, Wifi, Layers, Eye, EyeOff, Mail, Bell, TrendingDown, Brain } from "lucide-react";
 import { getSettings, updateSettings, testConnection, testTelegram, testEmail } from "../services/api";
 
-const PAIRS     = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","AVAXUSDT","DOTUSDT","MATICUSDT"];
 const INTERVALS = ["1m","5m","15m","30m","1h","4h","1d"];
 
 export default function Settings() {
@@ -22,6 +21,9 @@ export default function Settings() {
     telegram_bot_token: "", telegram_chat_id: "",
     email_sender: "", email_app_password: "", email_receiver: "",
   });
+
+  const [cryptoPairs,  setCryptoPairs]  = useState([]);
+  const [forexPairs,   setForexPairs]   = useState([]);
 
   const [showKey,      setShowKey]      = useState(false);
   const [showSecret,   setShowSecret]   = useState(false);
@@ -62,6 +64,9 @@ export default function Settings() {
         sentiment_filter:         d.sentiment_filter         ?? true,
         mtf_enabled:              d.mtf_enabled              ?? true,
       }));
+      // Load pairs from API
+      if (d.crypto_pairs?.length) setCryptoPairs(d.crypto_pairs);
+      if (d.forex_pairs?.length)  setForexPairs(d.forex_pairs);
       setTelegramOk(!!d.telegram_configured);
       setEmailOk(!!d.email_configured);
     }).catch(() => {});
@@ -204,7 +209,14 @@ export default function Settings() {
             <div className="form-group">
               <label>Symbol</label>
               <select name="symbol" value={form.symbol} onChange={handleChange} className="form-select">
-                {PAIRS.map(p => <option key={p}>{p}</option>)}
+                <optgroup label="── Crypto ──">
+                  {cryptoPairs.map(p => <option key={p}>{p}</option>)}
+                </optgroup>
+                {forexPairs.length > 0 && (
+                  <optgroup label="── Forex ──">
+                    {forexPairs.map(p => <option key={p}>{p}</option>)}
+                  </optgroup>
+                )}
               </select>
             </div>
             <div className="form-group">
@@ -242,14 +254,33 @@ export default function Settings() {
           </div>
           <div>
             <label style={{ color:"var(--text-dim)", fontSize:11, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.6px" }}>Active Pairs</label>
-            <div className="symbol-pill-grid" style={{ marginTop:8 }}>
-              {PAIRS.map(sym => (
-                <button key={sym} type="button"
-                  className={`symbol-pill ${(form.active_symbols||[]).includes(sym)?"active":""}`}
-                  onClick={() => toggleSymbol(sym)}>{sym}</button>
-              ))}
-            </div>
-            <small style={{ color:"var(--text-dim)", fontSize:11 }}>Selected: {(form.active_symbols||[]).join(", ")||"none"}</small>
+            {cryptoPairs.length > 0 && (
+              <>
+                <div style={{ color:"var(--text-dim)", fontSize:10, marginTop:8, marginBottom:4, fontWeight:600 }}>CRYPTO</div>
+                <div className="symbol-pill-grid">
+                  {cryptoPairs.map(sym => (
+                    <button key={sym} type="button"
+                      className={`symbol-pill ${(form.active_symbols||[]).includes(sym)?"active":""}`}
+                      onClick={() => toggleSymbol(sym)}>{sym}</button>
+                  ))}
+                </div>
+              </>
+            )}
+            {forexPairs.length > 0 && (
+              <>
+                <div style={{ color:"var(--text-dim)", fontSize:10, marginTop:10, marginBottom:4, fontWeight:600 }}>FOREX</div>
+                <div className="symbol-pill-grid">
+                  {forexPairs.map(sym => (
+                    <button key={sym} type="button"
+                      className={`symbol-pill ${(form.active_symbols||[]).includes(sym)?"active":""}`}
+                      onClick={() => toggleSymbol(sym)}>{sym}</button>
+                  ))}
+                </div>
+              </>
+            )}
+            <small style={{ color:"var(--text-dim)", fontSize:11, marginTop:6, display:"block" }}>
+              Selected: {(form.active_symbols||[]).join(", ")||"none"}
+            </small>
           </div>
         </div>
 
