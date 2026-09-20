@@ -361,10 +361,10 @@ async def manual_trade(req: ManualTradeRequest):
         signal["price"]      = price
         signal["action"]     = "BUY"
         signal["confidence"] = 99   # Manual override — skip confidence check
-        trade = engine.trade_manager.execute_buy(symbol, signal)
+        trade = engine.trade_manager.execute_buy(symbol, signal, force=True)
         if trade:
             return {"message": f"Buy placed for {symbol}", "trade": trade}
-        raise HTTPException(400, "Buy failed — check balance and API keys in Settings.")
+        raise HTTPException(400, "Buy failed — check Binance API keys in Settings.")
 
     elif req.side.upper() == "SELL":
         open_trades = [t for t in engine.trade_manager.get_open_trades() if t["symbol"] == symbol]

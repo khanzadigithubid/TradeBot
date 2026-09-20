@@ -120,13 +120,14 @@ class TradeManager:
 
     # ── Execute BUY ────────────────────────────────────────────────────────────
 
-    def execute_buy(self, symbol: str, signal: dict) -> Optional[dict]:
-        # Max open trades check (global)
-        open_count = len([t for t in self.trades if t.get("status") == "OPEN"])
-        max_trades = self.config.get("MAX_OPEN_TRADES", 3)
-        if open_count >= max_trades:
-            logger.info(f"Max open trades ({max_trades}) reached — skipping BUY")
-            return None
+    def execute_buy(self, symbol: str, signal: dict, force: bool = False) -> Optional[dict]:
+        # Max open trades check (global) — force=True pe skip (manual trade)
+        if not force:
+            open_count = len([t for t in self.trades if t.get("status") == "OPEN"])
+            max_trades = self.config.get("MAX_OPEN_TRADES", 3)
+            if open_count >= max_trades:
+                logger.info(f"Max open trades ({max_trades}) reached — skipping BUY")
+                return None
 
         price    = signal["price"]
         quantity = self.get_trade_quantity(symbol, price)
