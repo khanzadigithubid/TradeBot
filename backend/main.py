@@ -88,6 +88,25 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
+# ─── Self-Ping Loop (Render keep-alive) ───────────────────────────────────────
+
+async def keep_alive_loop():
+    """
+    Pings own /ping endpoint every 10 minutes so Render free tier
+    does not put the server to sleep after 15 min inactivity.
+    """
+    import httpx
+    await asyncio.sleep(60)          # wait 1 min after startup
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.get("http://localhost:8000/ping", timeout=10)
+            logger.info("🏓 Self-ping OK — Render keep-alive")
+        except Exception as e:
+            logger.debug(f"Self-ping failed (harmless): {e}")
+        await asyncio.sleep(600)     # every 10 minutes
+
+
 # ─── Daily Summary Email ───────────────────────────────────────────────────────
 
 async def daily_summary_loop():
@@ -159,6 +178,9 @@ async def startup_event():
     # ── DAILY SUMMARY ───────────────────────────────────────────────────────────
     asyncio.create_task(daily_summary_loop())
 
+    # ── KEEP-ALIVE (Render free tier) ────────────────────────────────────────────
+    asyncio.create_task(keep_alive_loop())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -180,6 +202,11 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy", "bot_running": engine.running}
+
+@app.get("/ping")
+def ping():
+    """Keep-alive endpoint — prevents Render free tier from sleeping"""
+    return {"pong": True}
 
 
 if __name__ == "__main__":

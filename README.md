@@ -1,20 +1,26 @@
 # ⚡ AI TradeBot — Crypto Auto Trading Bot
 
-> Professional AI-powered trading bot with real-time dashboard, multi-symbol support, backtesting, and 4-channel notifications.
+> Professional AI-powered crypto trading bot with real-time dashboard, 12-indicator signal engine, backtesting, multi-symbol support, and 4-channel notifications.
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104-green?logo=fastapi)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18-61dafb?logo=react)](https://react.dev)
-[![Binance](https://img.shields.io/badge/Binance-Testnet-yellow?logo=binance)](https://testnet.binance.vision)
-[![License](https://img.shields.io/badge/License-MIT-purple)](LICENSE)
+[![Binance](https://img.shields.io/badge/Binance-API-F0B90B?logo=binance)](https://binance.com)
+[![Render](https://img.shields.io/badge/Backend-Render-46E3B7?logo=render)](https://render.com)
+[![Vercel](https://img.shields.io/badge/Frontend-Vercel-000?logo=vercel)](https://vercel.com)
+[![License](https://img.shields.io/badge/License-MIT-8b5cf6)](LICENSE)
 
 ---
 
-## 📸 Screenshots
+## 🌐 Live Demo
 
-| Dashboard | Analytics | Backtest |
-|---|---|---|
-| Real-time signal + chart | P&L curve + drawdown | Historical strategy sim |
+| | Link |
+|---|---|
+| 🖥️ **Frontend Dashboard** | [https://trade-bot-sigma-five.vercel.app](https://trade-bot-sigma-five.vercel.app) |
+| ⚙️ **Backend API** | [https://tradebot-omuy.onrender.com](https://tradebot-omuy.onrender.com) |
+| 📚 **API Docs (Swagger)** | [https://tradebot-omuy.onrender.com/docs](https://tradebot-omuy.onrender.com/docs) |
+
+> ℹ️ Backend runs on Render free tier — first load may take ~10 seconds to wake up.
 
 ---
 
@@ -22,17 +28,17 @@
 
 | Feature | Details |
 |---|---|
-| 🤖 **Auto Trading** | Bot starts automatically, no manual intervention |
-| 📊 **12 Indicators** | EMA, RSI, MACD, BB, VWAP, StochRSI, SuperTrend, Williams%R, OBV, S/R |
-| 🕐 **Multi-Timeframe** | 15m + 1h + 4h analysis combined |
-| 🧠 **Sentiment Filter** | Fear & Greed Index + CryptoPanic news |
+| 🤖 **Auto Trading** | Bot starts automatically on server launch |
+| 📊 **12 Indicators** | EMA, RSI, MACD, Bollinger Bands, VWAP, Stoch RSI, SuperTrend, Williams %R, OBV, Support/Resistance |
+| 🕐 **Multi-Timeframe** | 15m + 1h + 4h analysis — all 3 must agree for strong signal |
+| 🧠 **Sentiment Filter** | Fear & Greed Index + CryptoPanic news headlines |
 | 🛡️ **Risk Management** | Stop Loss, Take Profit, Trailing Stop, Daily Loss Limit |
-| ⚡ **Real-time SL/TP** | Binance WebSocket — ~100ms tick-by-tick monitoring |
+| ⚡ **Real-time SL/TP** | Binance WebSocket ~100ms tick — no waiting for candle close |
 | 🔄 **Multi-Symbol** | Trade BTC, ETH, BNB, SOL... simultaneously |
-| 🧪 **Backtesting** | Test strategy on historical data with full metrics |
-| 📉 **Analytics** | P&L curve, Drawdown, Sharpe Ratio, Monthly breakdown |
-| 📱 **Telegram** | Trade alerts on every buy/sell |
-| 📧 **Email (Gmail + Resend)** | HTML trade reports + daily summary |
+| 🧪 **Backtesting** | Full historical simulation with Sharpe, Drawdown, Profit Factor |
+| 📉 **Analytics Page** | P&L curve, Drawdown chart, Monthly breakdown, Win/Loss by symbol |
+| 📱 **Telegram** | Instant alerts on every trade |
+| 📧 **Email** | HTML trade reports via Gmail SMTP + Resend API |
 | 🎮 **Discord** | Rich embed notifications via webhook |
 | 🌐 **Fallback Data** | Binance → Kraken → CoinGecko (works even if Binance is blocked) |
 
@@ -41,29 +47,29 @@
 ## 🗺️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                   FRONTEND  (React + Vite)                      │
-│  Dashboard │ Analytics │ Backtest │ History │ Settings          │
-│       ↕ REST API              ↕ WebSocket /ws                   │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────────────┐
-│                BACKEND  (FastAPI — main.py)                     │
-│    api/routes.py (30+ endpoints)  │  api/websocket.py           │
-│                       │                                         │
-│            bot/engine.py  (TradingEngine)                       │
-│    ┌──────────┬──────────┬──────────┬───────────┐               │
-│    │indicators│  trade_  │ market_  │sentiment  │ price_stream  │
-│    │   .py    │ manager  │  data    │   .py     │    .py        │
-│    │12 indic. │ SL/TP/TS │ Fallback │ Fear&Greed│ WS ~100ms     │
-│    └──────────┴──────────┴──────────┴───────────┘               │
-└─────────────────────────────────────────────────────────────────┘
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-   Telegram         Gmail          Discord
-   Alerts           SMTP           Webhook
-                    + Resend
+┌─────────────────────────────────────────────────────────────┐
+│              FRONTEND  (React 18 + Vite)                    │
+│  Dashboard │ Analytics │ Backtest │ History │ Settings      │
+│       ↕ REST API (30+ endpoints)   ↕ WebSocket /ws          │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────────────┐
+│               BACKEND  (FastAPI + asyncio)                  │
+│   api/routes.py  ─────────  api/websocket.py                │
+│                                                             │
+│            bot/engine.py  (TradingEngine)                   │
+│  ┌──────────┬─────────────┬────────────┬──────────────────┐ │
+│  │indicators│trade_manager│market_data │ sentiment.py     │ │
+│  │ 12 indic │ SL/TP/Trail │ 3 fallbacks│ Fear&Greed+News  │ │
+│  └──────────┴─────────────┴────────────┴──────────────────┘ │
+│                  price_stream.py (WS ~100ms)                 │
+│                  backtester.py                               │
+│                  settings_store.py ─── data/settings.json   │
+│                  trade_manager.py  ─── data/trades.json      │
+└─────────────────────────────────────────────────────────────┘
+         │              │              │            │
+      Telegram        Gmail         Resend       Discord
+      Bot API         SMTP          API          Webhook
 ```
 
 ---
@@ -74,61 +80,61 @@
 Trading Bot/
 ├── backend/
 │   ├── bot/
-│   │   ├── engine.py           # Main trading loop (multi-symbol asyncio)
-│   │   ├── indicators.py       # 12 indicators + AI signal scoring
-│   │   ├── trade_manager.py    # Buy/Sell/SL/TP/Trailing Stop
-│   │   ├── backtester.py       # Historical strategy simulation
-│   │   ├── market_data.py      # Binance → Kraken → CoinGecko fallback
-│   │   ├── price_stream.py     # Binance WebSocket (real-time SL/TP)
-│   │   ├── sentiment.py        # Fear & Greed + News sentiment
-│   │   ├── notifier.py         # Telegram alerts
-│   │   ├── email_notifier.py   # Gmail SMTP alerts
-│   │   ├── resend_notifier.py  # Resend API (works on Render)
-│   │   ├── discord_notifier.py # Discord webhook
-│   │   ├── binance_client.py   # Binance REST API (HMAC signed)
-│   │   ├── settings_store.py   # Persist settings to JSON
-│   │   └── config.py           # Default config (loads from .env)
+│   │   ├── engine.py            # Main trading loop (multi-symbol asyncio)
+│   │   ├── indicators.py        # 12 indicators + AI signal scoring (0–240 pts)
+│   │   ├── trade_manager.py     # Buy/Sell/SL/TP/Trailing Stop
+│   │   ├── backtester.py        # Historical strategy simulation
+│   │   ├── market_data.py       # Binance → Kraken → CoinGecko fallback
+│   │   ├── price_stream.py      # Binance WebSocket real-time price feed
+│   │   ├── sentiment.py         # Fear & Greed Index + News sentiment
+│   │   ├── notifier.py          # Telegram alerts
+│   │   ├── email_notifier.py    # Gmail SMTP alerts
+│   │   ├── resend_notifier.py   # Resend API (works on Render free tier)
+│   │   ├── discord_notifier.py  # Discord webhook notifications
+│   │   ├── binance_client.py    # Binance REST API (HMAC SHA256 signed)
+│   │   ├── settings_store.py    # Persist UI settings to JSON
+│   │   └── config.py            # Default config (loads from .env)
 │   ├── api/
-│   │   ├── routes.py           # 30+ REST API endpoints
-│   │   └── websocket.py        # WebSocket connection manager
+│   │   ├── routes.py            # 30+ REST API endpoints
+│   │   └── websocket.py         # WebSocket connection manager
 │   ├── data/
-│   │   ├── trades.json         # All trades (auto-created)
-│   │   └── settings.json       # UI settings (auto-created)
-│   ├── .env.example            # Template — copy to .env
-│   ├── main.py                 # FastAPI entry point (auto-starts bot)
+│   │   ├── trades.json          # Trade records (auto-created)
+│   │   └── settings.json        # UI settings (auto-created)
+│   ├── .env.example             # Template — copy to .env
+│   ├── main.py                  # FastAPI entry point (auto-starts bot)
 │   ├── requirements.txt
-│   └── render.yaml             # Render.com deployment config
+│   └── render.yaml              # Render.com deployment config
 │
 └── frontend/
     ├── src/
     │   ├── pages/
-    │   │   ├── Dashboard.jsx   # Main page: signal, chart, trades
-    │   │   ├── Analytics.jsx   # P&L curve, drawdown, monthly
-    │   │   ├── Backtest.jsx    # Run backtests
-    │   │   ├── History.jsx     # Closed trade history
-    │   │   └── Settings.jsx    # All bot settings
+    │   │   ├── Dashboard.jsx    # Signal panel, chart, open trades
+    │   │   ├── Analytics.jsx    # P&L curve, drawdown, monthly stats
+    │   │   ├── Backtest.jsx     # Run historical backtests
+    │   │   ├── History.jsx      # Closed trades table
+    │   │   └── Settings.jsx     # Bot config, API keys, notifications
     │   ├── components/
-    │   │   ├── PriceChart.jsx  # Candlestick + indicator overlays
-    │   │   ├── SignalBadge.jsx # BUY/SELL/HOLD badge
+    │   │   ├── PriceChart.jsx   # Candlestick + EMA/BB overlays
+    │   │   ├── SignalBadge.jsx  # BUY / SELL / HOLD badge
     │   │   ├── OpenTradeCard.jsx
     │   │   ├── StatCard.jsx
     │   │   └── Navbar.jsx
     │   ├── hooks/
-    │   │   └── useWebSocket.js # Auto-reconnect WS hook
+    │   │   └── useWebSocket.js  # Auto-reconnect WebSocket hook
     │   └── services/
-    │       └── api.js          # All REST API calls
-    └── vercel.json             # Vercel deployment config
+    │       └── api.js           # All REST API calls
+    ├── .env.example             # Frontend env template
+    └── vercel.json              # Vercel deployment config
 ```
 
 ---
 
-## 🚀 Setup & Run
+## 🚀 Local Setup & Run
 
 ### Prerequisites
-
 - Python 3.11+
 - Node.js 18+
-- Binance account (Testnet recommended)
+- Binance Testnet account (free)
 
 ---
 
@@ -141,135 +147,130 @@ cd TradeBot
 
 ---
 
-### Step 2 — Backend Setup
+### Step 2 — Backend
 
 ```bash
 cd backend
 
-# Create virtual environment
+# Windows
 python -m venv venv
-
-# Activate (Windows)
 venv\Scripts\activate
 
-# Install dependencies
+# macOS / Linux
+python3 -m venv venv
+source venv/bin/activate
+
 pip install -r requirements.txt
 
-# Copy env file
-copy .env.example .env
+# Configure environment
+copy .env.example .env        # Windows
+cp .env.example .env          # Mac/Linux
 ```
 
 Edit `backend/.env`:
 
 ```env
-# ── Binance ──────────────────────────────
-BINANCE_API_KEY=your_api_key_here
-BINANCE_SECRET_KEY=your_secret_key_here
-TESTNET=True                    # Keep True for safe testing
+# ── Binance ──────────────────────────────────
+BINANCE_API_KEY=your_api_key
+BINANCE_SECRET_KEY=your_secret_key
+TESTNET=True                    # True = safe testing, False = real money
 
-# ── Telegram (optional) ──────────────────
+# ── Optional: Telegram alerts ────────────────
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 
-# ── Email Gmail (optional) ───────────────
+# ── Optional: Email alerts ────────────────────
 EMAIL_SENDER=yourbot@gmail.com
 EMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
 EMAIL_RECEIVER=you@gmail.com
 
-# ── Resend API (optional, works on Render)
+# ── Optional: Resend API ─────────────────────
 RESEND_API_KEY=
 
-# ── Discord (optional) ───────────────────
+# ── Optional: Discord ────────────────────────
 DISCORD_WEBHOOK_URL=
 
-# ── Risk Management ───────────────────────
+# ── Risk Management ───────────────────────────
 DAILY_LOSS_LIMIT_PERCENT=5.0
 SENTIMENT_FILTER=True
 MTF_ENABLED=True
 ```
 
-Start the backend:
-
 ```bash
+# Start backend (bot auto-starts!)
 python -m uvicorn main:app --reload --port 8000
 ```
 
-> Bot automatically starts trading on server launch!
+API Docs: http://localhost:8000/docs
 
 ---
 
-### Step 3 — Frontend Setup
+### Step 3 — Frontend
 
 ```bash
 cd frontend
+
+# Create local env file
+copy .env.example .env.local   # Windows
+cp .env.example .env.local     # Mac/Linux
+
 npm install
 npm run dev
 ```
 
-Open: **http://localhost:5173**
+Open: **http://localhost:3000**
 
-> For local development, create `frontend/.env.local`:
-> ```
-> VITE_API_URL=http://localhost:8000/api
-> VITE_WS_URL=ws://localhost:8000/ws
-> ```
+> `.env.local` already points to `localhost:8000` — no extra config needed.
 
 ---
 
-### Step 4 — (Optional) Windows Quick Start
+### Windows Quick Start (One Click)
 
-Double-click the batch files:
-- `start_backend.bat` — starts the Python server
-- `start_frontend.bat` — starts the React dev server
-- `start_all.bat` — starts both together
+```
+start_backend.bat   ← starts Python server
+start_frontend.bat  ← starts React dev server
+start_all.bat       ← starts both together
+```
 
 ---
 
-## 🔑 Binance API Setup
+## 🔑 Binance API Keys
 
-### Testnet (Recommended — Free fake money)
+### Testnet (Free — Recommended for testing)
 1. Go to → https://testnet.binance.vision
 2. Login with GitHub → **Generate HMAC API Key**
-3. Copy Key + Secret → paste in `.env`
+3. Copy Key + Secret → paste into `.env`
 4. Keep `TESTNET=True`
 
-### Live Trading (Real money — careful!)
+### Live Trading (Real money)
 1. Go to → https://www.binance.com → API Management
-2. Enable **"Spot & Margin Trading"**
+2. Enable **Spot & Margin Trading**
 3. Paste Key + Secret → set `TESTNET=False`
 
-> ⚠️ **WARNING:** Always test on Testnet first. Never risk money you can't afford to lose.
+> ⚠️ Always test on Testnet first. Start with a small amount ($50–$100).
 
 ---
 
-## 📧 Email Notifications Setup
+## 📧 Notification Setup
+
+### Telegram
+1. Search **@BotFather** on Telegram → `/newbot` → get token
+2. Search **@userinfobot** → get your Chat ID
+3. Add both to `.env`
 
 ### Gmail
-1. Enable **2-Step Verification** on your Google account
+1. Enable 2-Step Verification on Google account
 2. Go to → https://myaccount.google.com/apppasswords
-3. Create App Password → name it `Trading Bot`
-4. Copy the 16-character password → paste in `.env`
+3. Create App Password → `Trading Bot`
+4. Copy 16-char password → add to `.env`
 
-### Resend (recommended for cloud deployment)
-1. Sign up → https://resend.com (free tier: 100 emails/day)
-2. Get API Key → paste `RESEND_API_KEY` in `.env`
+### Resend API *(recommended for cloud deploy)*
+1. Sign up → https://resend.com (free: 100 emails/day)
+2. Get API Key → add `RESEND_API_KEY` to `.env`
 
----
-
-## 📱 Telegram Notifications Setup
-
-1. Open Telegram → search **@BotFather** → `/newbot`
-2. Follow steps → get your **Bot Token**
-3. Search **@userinfobot** → get your **Chat ID**
-4. Paste both in `.env`
-
----
-
-## 🎮 Discord Notifications Setup
-
-1. Open Discord → Server Settings → **Integrations** → Webhooks
-2. Create Webhook → Copy URL
-3. Paste `DISCORD_WEBHOOK_URL` in `.env`
+### Discord
+1. Server Settings → Integrations → Webhooks → New Webhook
+2. Copy URL → add `DISCORD_WEBHOOK_URL` to `.env`
 
 ---
 
@@ -278,34 +279,34 @@ Double-click the batch files:
 Every candle interval (default **15 minutes**):
 
 ```
-1. Fetch 200 candles from Binance (or Kraken/CoinGecko fallback)
-2. Fetch 1h + 4h candles for Multi-Timeframe analysis
-3. Check Fear & Greed Index + News sentiment
-4. Calculate all 12 indicators
-5. Score BUY vs SELL (0-250 points each)
-6. Apply sentiment adjustment (±15~25 pts)
-7. Confidence ≥ 60% → Execute trade
-8. Set Stop Loss + Take Profit (ATR-based)
-9. Real-time WebSocket monitors price every ~100ms
-10. SL/TP hit → auto-close + notifications
+1.  Fetch 200 candles from Binance (Kraken/CoinGecko fallback)
+2.  Fetch 1h + 4h candles for Multi-Timeframe analysis
+3.  Check Fear & Greed Index + News sentiment
+4.  Calculate all 12 indicators
+5.  Score BUY vs SELL (0–240 points each side)
+6.  Apply sentiment adjustment (±15 to ±25 pts)
+7.  Confidence ≥ 60% → Execute trade
+8.  Set Stop Loss + Take Profit (ATR-based + % configured)
+9.  Real-time Binance WebSocket monitors price every ~100ms
+10. SL/TP hit → auto-close + send all notifications
 ```
 
-### Indicator Scoring Table
+### Indicator Scoring
 
 | # | Indicator | Max Points |
 |---|---|---|
 | 1 | EMA Crossover (9/21) | 25 pts |
-| 2 | RSI Oversold/Overbought | 30 pts |
+| 2 | RSI Oversold / Overbought | 30 pts |
 | 3 | MACD Crossover | 25 pts |
 | 4 | Bollinger Band touch | 20 pts |
 | 5 | VWAP position | 15 pts |
 | 6 | Stochastic RSI crossover | 20 pts |
 | 7 | SuperTrend direction | 20 pts |
 | 8 | Williams %R | 15 pts |
-| 9 | Support/Resistance proximity | 15 pts |
+| 9 | Support / Resistance proximity | 15 pts |
 | 10 | OBV momentum | 10 pts |
 | 11 | Volume confirmation | 15 pts |
-| 12 | Multi-Timeframe (15m+1h+4h) | 30 pts |
+| 12 | Multi-Timeframe (15m + 1h + 4h) | 30 pts |
 | | **Total possible** | **240 pts** |
 
 ---
@@ -322,91 +323,110 @@ Every candle interval (default **15 minutes**):
 | Stop Loss | `2%` | Auto-close on loss |
 | Take Profit | `4%` | Auto-close on profit |
 | Trailing Stop | `ON` | SL moves up as price rises |
-| Trail % | `1%` | Trail distance below peak |
-| Daily Loss Limit | `5%` | Auto-stop bot on big loss day |
-| Sentiment Filter | `ON` | Block trades on extreme greed |
-| MTF Analysis | `ON` | 15m + 1h + 4h combined |
+| Trail % | `1%` | Trail distance below peak price |
+| Daily Loss Limit | `5%` | Auto-stop bot on bad day |
+| Sentiment Filter | `ON` | Block BUY on Extreme Greed |
+| MTF Analysis | `ON` | 15m + 1h + 4h combined signal |
 | Multi-Symbol | `OFF` | Trade multiple pairs at once |
 
 ---
 
-## 📊 REST API Endpoints
+## 📊 REST API Reference
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/status` | Bot running status |
+| GET | `/api/status` | Bot status + stats |
 | POST | `/api/bot/start` | Start the bot |
 | POST | `/api/bot/stop` | Stop the bot |
 | GET | `/api/settings` | Get all settings |
 | POST | `/api/settings` | Update settings |
-| GET | `/api/market/{symbol}/signal` | Get AI signal |
-| GET | `/api/market/{symbol}/candles` | Candle data |
+| GET | `/api/market/{symbol}/price` | Current price |
+| GET | `/api/market/{symbol}/signal` | AI signal |
+| GET | `/api/market/{symbol}/candles` | OHLCV candles |
 | GET | `/api/market/{symbol}/indicators` | Chart indicators |
+| GET | `/api/market/{symbol}/stats` | 24h stats |
 | GET | `/api/trades/open` | Open positions |
 | GET | `/api/trades/history` | Trade history |
-| GET | `/api/trades/stats` | Win rate, P&L |
+| GET | `/api/trades/stats` | Win rate, P&L, balance |
 | POST | `/api/trades/manual` | Manual buy/sell |
 | DELETE | `/api/trades/{id}` | Close a trade |
 | POST | `/api/backtest` | Run backtest |
 | GET | `/api/analytics` | Analytics data |
-
-**API Docs:** http://localhost:8000/docs
+| GET | `/ping` | Keep-alive / health check |
 
 ---
 
 ## ☁️ Deployment
 
-### Backend → Render.com (Free tier)
-```bash
-# render.yaml is already configured
-# Push to GitHub → connect Render → auto-deploy
-```
+### Backend → Render.com
 
-### Frontend → Vercel (Free tier)
+`render.yaml` is already configured. Just:
+1. Push to GitHub
+2. Connect repo on [render.com](https://render.com)
+3. Add environment variables from `.env`
+4. Auto-deploys on every push
+
+### Frontend → Vercel
+
 ```bash
 cd frontend
 npm run build
-# Push to GitHub → connect Vercel → auto-deploy
 ```
 
-Set environment variables on Vercel:
+1. Push to GitHub
+2. Connect repo on [vercel.com](https://vercel.com)
+3. Add environment variables:
 ```
-VITE_API_URL=https://your-render-app.onrender.com/api
-VITE_WS_URL=wss://your-render-app.onrender.com/ws
+VITE_API_URL = https://your-app.onrender.com/api
+VITE_WS_URL  = wss://your-app.onrender.com/ws
 ```
 
 ---
 
-## 📁 Data Files
+## 📁 Important Files
 
 | File | Description |
 |---|---|
+| `backend/.env` | Secret keys — **never commit!** |
 | `backend/data/trades.json` | All trade records (auto-created) |
 | `backend/data/settings.json` | UI-saved settings (auto-created) |
-| `backend/.env` | Secret keys — never commit! |
+| `frontend/.env.local` | Local dev URLs (auto-ignored by git) |
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.11, FastAPI, asyncio, websockets |
+| Data | pandas, numpy |
+| Frontend | React 18, Vite, Lightweight Charts, Lucide Icons |
+| Exchange | Binance REST + WebSocket API |
+| Hosting | Render.com (backend) + Vercel (frontend) |
+| Notifications | Telegram Bot API, Gmail SMTP, Resend API, Discord Webhooks |
+
+---
+
+## 👤 Author
+
+**Khanzadi**
+- GitHub: [@khanzadigithubid](https://github.com/khanzadigithubid)
+
+> 💼 Available for freelance work — custom trading bots, dashboards, and automation.
+> Open an [issue](https://github.com/khanzadigithubid/TradeBot/issues) or reach out directly.
 
 ---
 
 ## ⚠️ Risk Warning
 
-> Trading cryptocurrencies involves significant risk of loss.
-> Always test thoroughly on **Testnet** before using real money.
-> Never invest money you cannot afford to lose.
-> Past performance does not guarantee future results.
-> This bot is for educational purposes.
+Trading cryptocurrencies involves **significant risk of loss**.
+- Always test thoroughly on **Testnet** before using real money
+- Never invest money you cannot afford to lose
+- Past performance does not guarantee future results
+- This project is for **educational purposes**
 
 ---
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE) file.
-
----
-
-## 🙏 Tech Stack
-
-- **Backend:** Python 3.11, FastAPI, asyncio, websockets, pandas, numpy
-- **Frontend:** React 18, Vite, Lightweight Charts, Lucide Icons
-- **Exchange:** Binance API (Testnet + Live)
-- **Deployment:** Render.com (backend) + Vercel (frontend)
-- **Notifications:** Telegram Bot API, Gmail SMTP, Resend API, Discord Webhooks
+MIT License — free to use, modify, and distribute.

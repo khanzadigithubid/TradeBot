@@ -21,6 +21,7 @@ backend/.env
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/.env.local
 
 # OS
 .DS_Store

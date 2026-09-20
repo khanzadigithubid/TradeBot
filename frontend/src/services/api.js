@@ -2,6 +2,8 @@
  * API Service — All backend communication
  */
 
+// Local development mein: VITE_API_URL set karo frontend/.env.local mein
+// Production (Vercel): VITE_API_URL set karo Vercel environment variables mein
 const BASE_URL = import.meta.env.VITE_API_URL || "https://tradebot-omuy.onrender.com/api";
 const WS_URL   = import.meta.env.VITE_WS_URL  || "wss://tradebot-omuy.onrender.com/ws";
 
