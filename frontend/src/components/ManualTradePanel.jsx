@@ -45,12 +45,17 @@ export default function ManualTradePanel({ currentSymbol, onTradeExecuted }) {
       setResult({
         type: "success",
         msg: side === "BUY"
-          ? `✅ BUY placed — ${res.trade?.quantity} ${symbol.replace("USDT","")} @ $${res.trade?.entry_price}`
+          ? `✅ BUY placed — ${res.trade?.quantity} ${symbol.replace("USDT","")} @ $${Number(res.trade?.entry_price).toLocaleString()}`
           : `✅ SELL done — ${res.trades?.length ?? 1} trade(s) closed`,
       });
       if (onTradeExecuted) onTradeExecuted();
     } catch (e) {
-      setResult({ type: "error", msg: `❌ ${e.message}` });
+      // Backend ka exact error message dikhao
+      const msg = e.message || "Trade failed";
+      setResult({
+        type: "error",
+        msg: `❌ ${msg}`,
+      });
     }
     setLoading(false);
     setShowConfirm(false);

@@ -332,28 +332,51 @@ async def manual_trade(req: ManualTradeRequest):
     symbol = req.symbol.upper()
     price  = engine.client.get_ticker_price(symbol)
     if not price:
-        raise HTTPException(404, "Could not get price")
+        raise HTTPException(404, "Could not get price for this symbol")
 
     if req.side.upper() == "BUY":
         from bot.indicators import generate_ai_signal
+
+        # Max open trades check
+        open_count = len([t for t in engine.trade_manager.get_open_trades()])
+        max_trades = engine.config.get("MAX_OPEN_TRADES", 3)
+        if open_count >= max_trades:
+            raise HTTPException(400, f"Max open trades limit reached ({open_count}/{max_trades}). Close a trade first or increase Max Trades in Settings.")
+
+        # Already open for this symbol?
+        already = [t for t in engine.trade_manager.get_open_trades() if t["symbol"] == symbol]
+        if already:
+            raise HTTPException(400, f"Already have an open trade for {symbol}. Close it first before buying again.")
+
+        # Balance check
+        balance = engine.client.get_balance("USDT")
+        if balance <= 0:
+            raise HTTPException(400, "USDT balance is 0 or could not be fetched. Check your Binance API keys in Settings.")
+
         df     = engine.client.get_klines(symbol, engine.interval, 200)
+        if df.empty:
+            raise HTTPException(404, f"No candle data for {symbol}")
         signal = generate_ai_signal(df, engine.config)
-        signal["price"] = price
-        trade  = engine.trade_manager.execute_buy(symbol, signal)
+        signal["price"]      = price
+        signal["action"]     = "BUY"
+        signal["confidence"] = 99   # Manual override — skip confidence check
+        trade = engine.trade_manager.execute_buy(symbol, signal)
         if trade:
-            return {"message": "Buy placed", "trade": trade}
-        raise HTTPException(400, "Could not execute buy")
+            return {"message": f"Buy placed for {symbol}", "trade": trade}
+        raise HTTPException(400, "Buy failed — check balance and API keys in Settings.")
 
     elif req.side.upper() == "SELL":
         open_trades = [t for t in engine.trade_manager.get_open_trades() if t["symbol"] == symbol]
         if not open_trades:
-            raise HTTPException(404, "No open trades for this symbol")
+            raise HTTPException(404, f"No open trades for {symbol}. Nothing to sell.")
         results = []
         for t in open_trades:
             r = engine.trade_manager.execute_sell(t["id"], price, "MANUAL")
             if r:
                 results.append(r)
-        return {"message": f"Closed {len(results)} trade(s)", "trades": results}
+        if not results:
+            raise HTTPException(400, f"Could not close trades for {symbol}.")
+        return {"message": f"Closed {len(results)} trade(s) for {symbol}", "trades": results}
 
     raise HTTPException(400, "Invalid side — use BUY or SELL")
 
