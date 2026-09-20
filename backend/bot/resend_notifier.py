@@ -18,7 +18,8 @@ class ResendNotifier:
     def __init__(self, api_key: str, receiver_email: str, sender_email: str = "onboarding@resend.dev"):
         self.api_key        = api_key
         self.receiver_email = receiver_email
-        self.sender_email   = sender_email if sender_email else "onboarding@resend.dev"
+        # Resend free plan only allows sending from onboarding@resend.dev or verified domains
+        self.sender_email   = "AI TradeBot <onboarding@resend.dev>"
         self.enabled        = bool(api_key and receiver_email)
 
     def send(self, subject: str, html: str) -> bool:
