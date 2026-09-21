@@ -229,6 +229,30 @@ def get_fear_greed():
 
 # ─── Market Data ───────────────────────────────────────────────────────────────
 
+@router.get("/market/prices")
+def get_bulk_prices(symbols: str = "BTCUSDT,ETHUSDT,BNBUSDT"):
+    """
+    Get prices + 24h change for multiple symbols in one call.
+    Usage: /api/market/prices?symbols=BTCUSDT,ETHUSDT,BNBUSDT
+    """
+    from bot.market_data import get_price, get_24h_stats
+    result = {}
+    for sym in symbols.split(","):
+        sym = sym.strip().upper()
+        if not sym:
+            continue
+        try:
+            stats = get_24h_stats(sym)
+            result[sym] = {
+                "price":  float(stats.get("lastPrice", 0) or 0),
+                "change": float(stats.get("priceChangePercent", 0) or 0),
+            }
+        except Exception:
+            price = get_price(sym)
+            result[sym] = {"price": price or 0, "change": 0}
+    return result
+
+
 @router.get("/market/{symbol}/price")
 def get_price(symbol: str):
     from bot.market_data import get_price as _get_price

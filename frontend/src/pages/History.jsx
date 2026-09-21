@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   Download, TrendingUp, TrendingDown,
-  BarChart2, Percent, DollarSign
+  BarChart2, Percent, DollarSign, Clock
 } from "lucide-react";
-import { getTradeHistory, getTradeStats } from "../services/api";
+import { getTradeHistory } from "../services/api";
 
 const REASON_CLS = {
   TAKE_PROFIT:   "reason-tp",
@@ -15,9 +15,9 @@ const REASON_CLS = {
 };
 
 const REASON_LABEL = {
-  TAKE_PROFIT:   "🎯 TP",
-  STOP_LOSS:     "🛑 SL",
-  TRAILING_STOP: "📉 Trail",
+  TAKE_PROFIT:   "🎯 Take Profit",
+  STOP_LOSS:     "🛑 Stop Loss",
+  TRAILING_STOP: "📉 Trailing Stop",
   SIGNAL:        "📊 Signal",
   MANUAL:        "👤 Manual",
   MANUAL_CLOSE:  "👤 Manual",
@@ -29,8 +29,8 @@ export default function History() {
   const [filter,  setFilter]  = useState("ALL");
 
   useEffect(() => {
-    Promise.all([getTradeHistory(100), getTradeStats()])
-      .then(([h]) => setTrades(h))
+    getTradeHistory(100)
+      .then(h => setTrades(h))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -39,8 +39,7 @@ export default function History() {
   const losses   = trades.filter(t => (t.pnl || 0) <= 0);
   const totalPnl = trades.reduce((s, t) => s + (t.pnl || 0), 0);
   const winRate  = trades.length > 0
-    ? ((wins.length / trades.length) * 100).toFixed(1)
-    : 0;
+    ? ((wins.length / trades.length) * 100).toFixed(1) : 0;
 
   const filtered = filter === "WIN" ? wins
                  : filter === "LOSS" ? losses
@@ -76,43 +75,21 @@ export default function History() {
 
       {/* ── Summary Cards ── */}
       <div className="history-summary">
-        <div className="summary-card">
-          <span className="summary-label">Total</span>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <BarChart2 size={16} color="#787b86" />
-            <span className="summary-value">{trades.length}</span>
+        {[
+          { label:"Total Trades", value: trades.length,         icon: BarChart2,   color:"blue" },
+          { label:"Wins",         value: wins.length,           icon: TrendingUp,  color:"green" },
+          { label:"Losses",       value: losses.length,         icon: TrendingDown,color:"red" },
+          { label:"Win Rate",     value: `${winRate}%`,         icon: Percent,     color:"purple" },
+          { label:"Total P&L",    value: `${totalPnl>=0?"+":""}${totalPnl.toFixed(4)}`, icon: DollarSign, color: totalPnl>=0?"green":"red" },
+        ].map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className={`summary-card ${color}`}>
+            <div className="summary-label">{label}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <Icon size={16} />
+              <span className="summary-value">{value}</span>
+            </div>
           </div>
-        </div>
-        <div className="summary-card green">
-          <span className="summary-label">Wins</span>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <TrendingUp size={16} color="#26a69a" />
-            <span className="summary-value">{wins.length}</span>
-          </div>
-        </div>
-        <div className="summary-card red">
-          <span className="summary-label">Losses</span>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <TrendingDown size={16} color="#ef5350" />
-            <span className="summary-value">{losses.length}</span>
-          </div>
-        </div>
-        <div className="summary-card purple">
-          <span className="summary-label">Win Rate</span>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <Percent size={16} color="#ce93d8" />
-            <span className="summary-value">{winRate}%</span>
-          </div>
-        </div>
-        <div className={`summary-card ${totalPnl >= 0 ? "green" : "red"}`}>
-          <span className="summary-label">Total P&L</span>
-          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            <DollarSign size={16} color={totalPnl >= 0 ? "#26a69a" : "#ef5350"} />
-            <span className="summary-value">
-              {totalPnl >= 0 ? "+" : ""}{totalPnl.toFixed(4)}
-            </span>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* ── Filters ── */}
@@ -122,11 +99,9 @@ export default function History() {
           ["WIN",  `Wins (${wins.length})`],
           ["LOSS", `Losses (${losses.length})`],
         ].map(([k, label]) => (
-          <button
-            key={k}
+          <button key={k}
             className={`filter-tab ${filter === k ? "active" : ""}`}
-            onClick={() => setFilter(k)}
-          >
+            onClick={() => setFilter(k)}>
             {label}
           </button>
         ))}
@@ -137,26 +112,22 @@ export default function History() {
         <div className="loading-state">Loading history...</div>
       ) : filtered.length === 0 ? (
         <div className="empty-state">
-          <BarChart2 size={32} color="#2a2f45" />
+          <BarChart2 size={32} color="var(--border2)" />
           <span>No trades found</span>
           <small>Completed trades will appear here</small>
         </div>
       ) : (
         <>
-          {/* ── Desktop Table ── */}
+          {/* Desktop Table */}
           <div className="table-wrapper history-table-desktop">
             <table className="trade-table">
               <thead>
                 <tr>
-                  <th>Symbol</th>
-                  <th>Entry</th>
-                  <th>Exit</th>
+                  <th>Symbol</th><th>Entry</th><th>Exit</th>
                   <th className="qty-col">Qty</th>
-                  <th>P&L (USDT)</th>
-                  <th>P&L %</th>
-                  <th>Reason</th>
-                  <th>AI Conf.</th>
-                  <th>Time</th>
+                  <th>P&L (USDT)</th><th>P&L %</th>
+                  <th>Reason</th><th>AI Conf.</th>
+                  <th className="time-col">Time</th>
                 </tr>
               </thead>
               <tbody>
@@ -169,20 +140,20 @@ export default function History() {
                       <td>${Number(t.exit_price || 0).toLocaleString()}</td>
                       <td className="qty-col">{t.quantity}</td>
                       <td className={isWin ? "pnl-pos" : "pnl-neg"}>
-                        {isWin ? "+" : ""}{Number(t.pnl || 0).toFixed(4)}
+                        {isWin?"+":""}{Number(t.pnl||0).toFixed(4)}
                       </td>
                       <td className={isWin ? "pnl-pos" : "pnl-neg"}>
-                        {isWin ? "+" : ""}{Number(t.pnl_percent || 0).toFixed(2)}%
+                        {isWin?"+":""}{Number(t.pnl_percent||0).toFixed(2)}%
                       </td>
                       <td>
-                        <span className={`reason-tag ${REASON_CLS[t.close_reason] || ""}`}>
-                          {t.close_reason || "—"}
+                        <span className={`reason-tag ${REASON_CLS[t.close_reason]||""}`}>
+                          {REASON_LABEL[t.close_reason] || t.close_reason || "—"}
                         </span>
                       </td>
                       <td>
                         <div className="confidence-bar">
-                          <div className="confidence-fill" style={{ width:`${t.confidence || 0}%` }} />
-                          <span className="confidence-text">{t.confidence || 0}%</span>
+                          <div className="confidence-fill" style={{width:`${t.confidence||0}%`}}/>
+                          <span className="confidence-text">{t.confidence||0}%</span>
                         </div>
                       </td>
                       <td className="time-col">
@@ -195,54 +166,47 @@ export default function History() {
             </table>
           </div>
 
-          {/* ── Mobile Cards ── */}
+          {/* Mobile Cards */}
           <div className="history-cards-mobile">
             {filtered.map(t => {
               const isWin = (t.pnl || 0) > 0;
               return (
-                <div key={t.id} className={`history-card ${isWin ? "hc-win" : "hc-loss"}`}>
-
-                  {/* Card header */}
+                <div key={t.id} className={`history-card ${isWin?"hc-win":"hc-loss"}`}>
                   <div className="hc-header">
-                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <span className="symbol-tag">{t.symbol}</span>
-                      <span className={`reason-tag ${REASON_CLS[t.close_reason] || ""}`}>
+                      <span className={`reason-tag ${REASON_CLS[t.close_reason]||""}`}>
                         {REASON_LABEL[t.close_reason] || t.close_reason}
                       </span>
                     </div>
-                    <span className={`hc-pnl ${isWin ? "pnl-pos" : "pnl-neg"}`}>
-                      {isWin ? "+" : ""}{Number(t.pnl || 0).toFixed(4)} USDT
+                    <span className={`hc-pnl ${isWin?"pnl-pos":"pnl-neg"}`}>
+                      {isWin?"+":""}{Number(t.pnl||0).toFixed(4)} USDT
                     </span>
                   </div>
-
-                  {/* Card body */}
                   <div className="hc-body">
                     <div className="hc-row">
-                      <span>Entry</span>
-                      <span>${Number(t.entry_price).toLocaleString()}</span>
+                      <span>Entry</span><span>${Number(t.entry_price).toLocaleString()}</span>
                     </div>
                     <div className="hc-row">
-                      <span>Exit</span>
-                      <span>${Number(t.exit_price || 0).toLocaleString()}</span>
+                      <span>Exit</span><span>${Number(t.exit_price||0).toLocaleString()}</span>
                     </div>
                     <div className="hc-row">
                       <span>P&L %</span>
-                      <span className={isWin ? "pnl-pos" : "pnl-neg"}>
-                        {isWin ? "+" : ""}{Number(t.pnl_percent || 0).toFixed(2)}%
+                      <span className={isWin?"pnl-pos":"pnl-neg"}>
+                        {isWin?"+":""}{Number(t.pnl_percent||0).toFixed(2)}%
                       </span>
                     </div>
                     <div className="hc-row">
-                      <span>AI Conf.</span>
-                      <div className="confidence-bar" style={{ width: 80 }}>
-                        <div className="confidence-fill" style={{ width:`${t.confidence || 0}%` }} />
-                        <span className="confidence-text">{t.confidence || 0}%</span>
+                      <span>Confidence</span>
+                      <div className="confidence-bar" style={{width:80}}>
+                        <div className="confidence-fill" style={{width:`${t.confidence||0}%`}}/>
+                        <span className="confidence-text">{t.confidence||0}%</span>
                       </div>
                     </div>
                   </div>
-
-                  {/* Card footer */}
                   {t.exit_time && (
                     <div className="hc-footer">
+                      <Clock size={10} style={{marginRight:4}}/>
                       {new Date(t.exit_time).toLocaleString()}
                     </div>
                   )}

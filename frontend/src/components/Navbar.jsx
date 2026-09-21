@@ -21,42 +21,44 @@ export default function Navbar({ connected, botRunning }) {
       <nav className="navbar">
         {/* Brand */}
         <div className="navbar-brand">
-          <Zap size={18} color="#26a69a" fill="#26a69a" />
-          <span className="brand-name">AI Trade<span className="brand-accent">Bot</span></span>
+          <div className="brand-icon-wrap">
+            <Zap size={16} color="#00c896" fill="#00c896" />
+          </div>
+          <span className="brand-name">
+            AI<span className="brand-accent">Trade</span>Bot
+          </span>
         </div>
 
         {/* Desktop links */}
-        <div className="navbar-links navbar-links-desktop">
+        <div className="navbar-links-desktop">
           {LINKS.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to} to={to} end={end}
               className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}
             >
-              <Icon size={14} />{label}
+              <Icon size={14} strokeWidth={2} />
+              {label}
             </NavLink>
           ))}
         </div>
 
-        {/* Status + hamburger */}
+        {/* Right: status + hamburger */}
         <div className="navbar-right">
           <div className="navbar-status">
-            {connected
-              ? <Wifi size={14} color="#2ecc71" />
-              : <WifiOff size={14} color="#ef5350" />
-            }
-            <span className="status-text">{connected ? "Live" : "Offline"}</span>
+            <div className={`ws-indicator ${connected ? "ws-on" : "ws-off"}`}>
+              {connected ? <Wifi size={13} /> : <WifiOff size={13} />}
+              <span className="status-text">{connected ? "Live" : "Offline"}</span>
+            </div>
             <div className={`bot-badge ${botRunning ? "running" : "stopped"}`}>
-              {botRunning ? "● ON" : "○ OFF"}
+              {botRunning ? "● BOT ON" : "○ BOT OFF"}
             </div>
           </div>
-
-          {/* Hamburger — only on mobile */}
           <button
             className="hamburger-btn"
             onClick={() => setMenuOpen(v => !v)}
             aria-label="Toggle menu"
           >
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            {menuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
         </div>
       </nav>
@@ -64,25 +66,29 @@ export default function Navbar({ connected, botRunning }) {
       {/* Mobile drawer */}
       {menuOpen && (
         <>
-          {/* Backdrop */}
-          <div
-            className="mobile-backdrop"
-            onClick={() => setMenuOpen(false)}
-          />
-          {/* Drawer */}
+          <div className="mobile-backdrop" onClick={() => setMenuOpen(false)} />
           <div className="mobile-drawer">
+            <div className="mobile-drawer-brand">
+              <Zap size={18} color="#00c896" fill="#00c896" />
+              <span style={{ fontWeight:800, color:"var(--text-bright)", fontSize:16 }}>
+                AI<span style={{ color:"var(--green)" }}>Trade</span>Bot
+              </span>
+            </div>
             {LINKS.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to} to={to} end={end}
                 className={({ isActive }) => isActive ? "mobile-nav-link active" : "mobile-nav-link"}
                 onClick={() => setMenuOpen(false)}
               >
-                <Icon size={16} />
+                <Icon size={16} strokeWidth={2} />
                 {label}
               </NavLink>
             ))}
             <div className="mobile-drawer-status">
-              <div className={`bot-badge ${botRunning ? "running" : "stopped"}`} style={{ fontSize: 12 }}>
+              <div
+                className={`bot-badge ${botRunning ? "running" : "stopped"}`}
+                style={{ fontSize:12, width:"100%", justifyContent:"center", display:"flex" }}
+              >
                 {botRunning ? "● BOT RUNNING" : "○ BOT STOPPED"}
               </div>
             </div>

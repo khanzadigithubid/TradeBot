@@ -43,6 +43,9 @@ export const getCandles      = (sym, int="15m", lim=200) =>
 export const getSignal       = (sym)               => request(`/market/${sym}/signal`);
 export const getIndicators   = (sym, int="15m", lim=200) =>
   request(`/market/${sym}/indicators?interval=${int}&limit=${lim}`);
+export const getBulkPrices   = (symbols)           =>
+  request(`/market/prices?symbols=${symbols.join(",")}`);
+
 
 // ── Trades ────────────────────────────────────────────────────────────────────
 export const getOpenTrades   = ()         => request("/trades/open");
