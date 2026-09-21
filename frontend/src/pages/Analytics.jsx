@@ -194,11 +194,52 @@ export default function Analytics() {
   const equityData  = (data?.equity_curve   || []).map(e => ({ time: e.time, value: e.pnl }));
   const drawdownData= (data?.drawdown_series || []).map(d => ({ time: d.time, value: d.drawdown }));
   const hasData     = equityData.length > 0;
-
   const pnlPos      = (stats?.total_pnl || 0) >= 0;
   const maxDD       = drawdownData.length > 0
     ? Math.abs(Math.min(...drawdownData.map(d => d.value))).toFixed(4)
     : "—";
+
+  // ── No trades yet ──────────────────────────────────────────────────────────
+  if (!hasData && stats?.total_trades === 0) return (
+    <div className="page analytics-page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Analytics</h1>
+          <p className="page-sub">Performance metrics & strategy analysis</p>
+        </div>
+      </div>
+      <div className="pro-empty-state">
+        <div className="pes-icon">📈</div>
+        <h2 className="pes-title">No Analytics Data Yet</h2>
+        <p className="pes-desc">
+          Performance charts, P&L curves, drawdown analysis, and win rates will
+          appear here once your bot completes its first trades.
+        </p>
+        <div className="pes-steps">
+          <div className="pes-step">
+            <span className="pes-step-num">1</span>
+            <span>Start the bot from <b>Dashboard</b></span>
+          </div>
+          <div className="pes-step">
+            <span className="pes-step-num">2</span>
+            <span>Bot executes trades automatically based on AI signals</span>
+          </div>
+          <div className="pes-step">
+            <span className="pes-step-num">3</span>
+            <span>After first closed trade, analytics populate here</span>
+          </div>
+          <div className="pes-step">
+            <span className="pes-step-num">4</span>
+            <span>Track P&L curve, Sharpe ratio, drawdown and more</span>
+          </div>
+        </div>
+        <div className="pes-status">
+          <span className="pes-dot" />
+          System ready — waiting for first trade
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="page analytics-page">

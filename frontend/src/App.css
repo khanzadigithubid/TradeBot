@@ -2421,3 +2421,106 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
     border-right: none;
   }
 }
+
+/* ═══════════════════════════════════
+   PROFESSIONAL EMPTY STATE
+═══════════════════════════════════ */
+.pro-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--grad-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  max-width: 560px;
+  margin: 0 auto;
+  gap: 20px;
+}
+
+.pes-icon {
+  font-size: 52px;
+  line-height: 1;
+  filter: drop-shadow(0 0 20px rgba(0,200,150,0.2));
+}
+
+.pes-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-bright);
+  letter-spacing: -0.3px;
+}
+
+.pes-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  max-width: 420px;
+}
+
+.pes-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.pes-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+}
+
+.pes-step-num {
+  min-width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--blue-dim);
+  color: var(--blue-light);
+  border: 1px solid rgba(55,114,255,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.pes-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+  padding: 8px 16px;
+  background: var(--green-dim);
+  border: 1px solid rgba(0,200,150,0.2);
+  border-radius: 20px;
+}
+
+.pes-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse-green 2s infinite;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .pro-empty-state { padding: 32px 16px; }
+  .pes-title       { font-size: 18px; }
+  .pes-icon        { font-size: 40px; }
+}
