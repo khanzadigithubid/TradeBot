@@ -147,11 +147,23 @@ export default function PriceChart({ symbol = "BTCUSDT", interval = "15m", liveP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Timestamp parser — handles both ISO with/without timezone ───────────
+  const parseTs = (ts) => {
+    if (!ts) return 0;
+    const s = String(ts);
+    // Agar Z ya +/- timezone nahi hai to UTC mano
+    const normalized = s.includes("Z") || s.match(/[+-]\d{2}:\d{2}$/)
+      ? s
+      : s + "Z";
+    const ms = new Date(normalized).getTime();
+    return isNaN(ms) ? 0 : Math.floor(ms / 1000);
+  };
+
   // ── Serialize a series array → [{time, value}] ────────────────────────────
   const toSeries = (times, values) =>
     times
-      .map((t, i) => ({ time: Math.floor(new Date(t).getTime() / 1000), value: values[i] }))
-      .filter(d => d.value !== null && d.value !== undefined && !isNaN(d.value));
+      .map((t, i) => ({ time: parseTs(t), value: values[i] }))
+      .filter(d => d.time > 0 && d.value !== null && d.value !== undefined && !isNaN(d.value));
 
   const dedup = arr => {
     const seen = new Set();
@@ -166,7 +178,7 @@ export default function PriceChart({ symbol = "BTCUSDT", interval = "15m", liveP
 
     Promise.all([
       getCandles(symbol, interval, 200),
-      getIndicators(symbol, interval, 200),
+      getIndicators(symbol, interval, 200).catch(() => null),  // Forex pe fail ho to null
     ])
       .then(([candles, ind]) => {
         if (!candles?.length) { setError("No data"); return; }
@@ -175,13 +187,13 @@ export default function PriceChart({ symbol = "BTCUSDT", interval = "15m", liveP
         const seen = new Set();
         const cData = candles
           .map(c => ({
-            time:  Math.floor(new Date(c.timestamp).getTime() / 1000),
+            time:  parseTs(c.timestamp),
             open:  Number(c.open),
             high:  Number(c.high),
             low:   Number(c.low),
             close: Number(c.close),
           }))
-          .filter(d => { if (seen.has(d.time)) return false; seen.add(d.time); return true; })
+          .filter(d => { if (!d.time || seen.has(d.time)) return false; seen.add(d.time); return true; })
           .sort((a, b) => a.time - b.time);
 
         candleRef.current?.setData(cData);
