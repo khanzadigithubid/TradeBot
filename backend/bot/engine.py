@@ -79,10 +79,14 @@ class TradingEngine:
         }
 
         # Override with UI-saved settings
-        saved = load_settings()
-        if saved:
-            self.config.update(saved)
-            logger.info(f"Loaded saved settings: {list(saved.keys())}")
+        try:
+            saved = load_settings()
+            if saved:
+                self.config.update(saved)
+                logger.info(f"Loaded saved settings: {list(saved.keys())}")
+        except Exception as e:
+            logger.warning(f"Could not load saved settings: {e}")
+            saved = {}
 
         # Single-symbol legacy support + multi-symbol list
         self.current_symbol  = saved.get("SYMBOL",   cfg.DEFAULT_SYMBOL)

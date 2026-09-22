@@ -35,9 +35,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.include_router(router, prefix="/api")
@@ -175,14 +176,23 @@ async def startup_event():
     logger.info("📚 API Docs:  http://localhost:8000/docs")
 
     # ── AUTO-START BOT ──────────────────────────────────────────────────────────
-    logger.info("🤖 Auto-starting trading bot...")
-    asyncio.create_task(engine.start())
+    try:
+        logger.info("🤖 Auto-starting trading bot...")
+        asyncio.create_task(engine.start())
+    except Exception as e:
+        logger.error(f"Bot auto-start failed (server still running): {e}")
 
     # ── DAILY SUMMARY ───────────────────────────────────────────────────────────
-    asyncio.create_task(daily_summary_loop())
+    try:
+        asyncio.create_task(daily_summary_loop())
+    except Exception as e:
+        logger.error(f"Daily summary loop failed: {e}")
 
     # ── KEEP-ALIVE (Render free tier) ────────────────────────────────────────────
-    asyncio.create_task(keep_alive_loop())
+    try:
+        asyncio.create_task(keep_alive_loop())
+    except Exception as e:
+        logger.error(f"Keep-alive loop failed: {e}")
 
 
 @app.on_event("shutdown")
