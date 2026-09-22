@@ -1,5 +1,15 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  ],
+  "env": {
+    "VITE_API_URL": "https://tradebot-omuy.onrender.com/api",
+    "VITE_WS_URL":  "wss://tradebot-omuy.onrender.com/ws"
+  },
+  "build": {
+    "env": {
+      "VITE_API_URL": "https://tradebot-omuy.onrender.com/api",
+      "VITE_WS_URL":  "wss://tradebot-omuy.onrender.com/ws"
+    }
+  }
 }
