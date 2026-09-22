@@ -372,14 +372,19 @@ class TradingEngine:
         try:
             self._daily_start_balance = self.client.get_balance("USDT")
             self._daily_loss_stopped  = False
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not fetch initial balance: {e}")
             self._daily_start_balance = 0.0
 
-        # Telegram + Email + Resend + Discord alert
-        self.notifier.bot_started(symbols, self.interval)
-        self.email_notifier.bot_started(symbols, self.interval)
-        self.resend_notifier.bot_started(symbols, self.interval)
-        self.discord_notifier.bot_started(symbols, self.interval)
+        # Notifications — wrapped individually so one failure doesn't crash start
+        try: self.notifier.bot_started(symbols, self.interval)
+        except Exception: pass
+        try: self.email_notifier.bot_started(symbols, self.interval)
+        except Exception: pass
+        try: self.resend_notifier.bot_started(symbols, self.interval)
+        except Exception: pass
+        try: self.discord_notifier.bot_started(symbols, self.interval)
+        except Exception: pass
 
         # Wait for all tasks to finish (they run until self.running = False)
         await asyncio.gather(*self._symbol_tasks.values(), return_exceptions=True)

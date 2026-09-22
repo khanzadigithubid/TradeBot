@@ -97,10 +97,13 @@ async def keep_alive_loop():
     """
     import httpx
     await asyncio.sleep(60)          # wait 1 min after startup
+    # Render pe PORT env var use karo, local pe 8000
+    port = os.environ.get("PORT", "8000")
+    ping_url = f"http://localhost:{port}/ping"
     while True:
         try:
             async with httpx.AsyncClient() as client:
-                await client.get("http://localhost:8000/ping", timeout=10)
+                await client.get(ping_url, timeout=10)
             logger.info("🏓 Self-ping OK — Render keep-alive")
         except Exception as e:
             logger.debug(f"Self-ping failed (harmless): {e}")
