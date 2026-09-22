@@ -75,12 +75,12 @@ def _try_binance(endpoint: str, params: dict):
 # ── Forex Price ────────────────────────────────────────────────────────────────
 
 def _get_forex_price(symbol: str) -> float | None:
-    """Get forex price using free APIs: frankfurter.app → exchangerate-api"""
+    """Get forex price using multiple free APIs as fallback"""
     base_currency = FOREX_SYMBOLS.get(symbol.upper())
     if not base_currency:
         return None
 
-    # frankfurter.app (free, no key needed)
+    # 1. frankfurter.app (free, no key needed)
     try:
         r = requests.get(
             f"https://api.frankfurter.app/latest",
@@ -88,14 +88,13 @@ def _get_forex_price(symbol: str) -> float | None:
             timeout=8,
         )
         if r.status_code == 200:
-            data = r.json()
-            rate = data.get("rates", {}).get("USD")
+            rate = r.json().get("rates", {}).get("USD")
             if rate:
                 return float(rate)
     except Exception as e:
         logger.debug(f"Frankfurter failed for {symbol}: {e}")
 
-    # ExchangeRate-API (free tier, no key needed)
+    # 2. ExchangeRate-API (free tier, no key needed)
     try:
         r = requests.get(
             f"https://open.er-api.com/v6/latest/{base_currency}",
@@ -108,57 +107,118 @@ def _get_forex_price(symbol: str) -> float | None:
     except Exception as e:
         logger.debug(f"ExchangeRate-API failed for {symbol}: {e}")
 
+    # 3. Fixer.io free alternative — exchangerate.host
+    try:
+        r = requests.get(
+            f"https://api.exchangerate.host/latest",
+            params={"base": base_currency, "symbols": "USD"},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            rate = r.json().get("rates", {}).get("USD")
+            if rate:
+                return float(rate)
+    except Exception as e:
+        logger.debug(f"exchangerate.host failed for {symbol}: {e}")
+
+    # 4. Hardcoded approximate fallback (last resort)
+    fallback_rates = {
+        "EUR": 1.10, "GBP": 1.27, "JPY": 0.0067,
+        "AUD": 0.65, "CAD": 0.74, "CHF": 1.12,
+    }
+    if base_currency in fallback_rates:
+        logger.warning(f"Using hardcoded fallback rate for {symbol}")
+        return fallback_rates[base_currency]
+
     return None
 
 
 def _get_forex_klines(symbol: str, interval: str = "15m", limit: int = 200) -> pd.DataFrame:
     """
-    Generate synthetic OHLCV candles for forex from frankfurter.app daily data.
-    frankfurter.app only provides daily data — we resample to requested interval.
+    Generate OHLCV candles for forex from multiple free APIs.
     """
     base_currency = FOREX_SYMBOLS.get(symbol.upper())
     if not base_currency:
         return pd.DataFrame()
 
-    try:
-        # Fetch last 90 days of daily data
-        end_date   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        start_date = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    end_date   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    start_date = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
 
+    # 1. frankfurter.app
+    try:
         r = requests.get(
             f"https://api.frankfurter.app/{start_date}..{end_date}",
             params={"from": base_currency, "to": "USD"},
             timeout=10,
         )
-        if r.status_code != 200:
-            return pd.DataFrame()
+        if r.status_code == 200:
+            raw = r.json().get("rates", {})
+            if raw:
+                return _build_forex_df(raw, limit)
+    except Exception as e:
+        logger.debug(f"Frankfurter klines failed for {symbol}: {e}")
 
-        raw = r.json().get("rates", {})
-        if not raw:
-            return pd.DataFrame()
+    # 2. exchangerate.host
+    try:
+        r = requests.get(
+            f"https://api.exchangerate.host/timeseries",
+            params={
+                "base": base_currency,
+                "symbols": "USD",
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            timeout=10,
+        )
+        if r.status_code == 200:
+            raw = r.json().get("rates", {})
+            if raw:
+                return _build_forex_df(
+                    {d: {"USD": v.get("USD", 0)} for d, v in raw.items()},
+                    limit
+                )
+    except Exception as e:
+        logger.debug(f"exchangerate.host timeseries failed: {e}")
 
+    # 3. Synthetic data from current price (last resort)
+    price = _get_forex_price(symbol)
+    if price:
+        logger.warning(f"Using synthetic forex data for {symbol}")
         rows = []
-        for date_str, rate_dict in sorted(raw.items()):
-            price = float(rate_dict.get("USD", 0))
-            if price > 0:
-                rows.append({
-                    "timestamp": pd.Timestamp(date_str),
-                    "open":      price,
-                    "high":      price * 1.002,   # small synthetic spread
-                    "low":       price * 0.998,
-                    "close":     price,
-                    "volume":    1000000.0,        # synthetic volume
-                })
-
-        if not rows:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(rows)
+        for i in range(min(limit, 90)):
+            day = datetime.now(timezone.utc) - timedelta(days=i)
+            rows.append({
+                "timestamp": pd.Timestamp(day.strftime("%Y-%m-%d")),
+                "open":   price,
+                "high":   price * 1.002,
+                "low":    price * 0.998,
+                "close":  price,
+                "volume": 1000000.0,
+            })
+        df = pd.DataFrame(rows[::-1])
         return df.tail(limit).reset_index(drop=True)
 
-    except Exception as e:
-        logger.warning(f"Forex klines failed for {symbol}: {e}")
+    return pd.DataFrame()
+
+
+def _build_forex_df(raw: dict, limit: int) -> pd.DataFrame:
+    """Build OHLCV DataFrame from date→rates dict"""
+    rows = []
+    for date_str, rate_dict in sorted(raw.items()):
+        price = float(rate_dict.get("USD", 0))
+        if price > 0:
+            rows.append({
+                "timestamp": pd.Timestamp(date_str),
+                "open":   price,
+                "high":   price * 1.002,
+                "low":    price * 0.998,
+                "close":  price,
+                "volume": 1000000.0,
+            })
+    if not rows:
         return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    return df.tail(limit).reset_index(drop=True)
 
 
 # ── Public Functions ───────────────────────────────────────────────────────────
