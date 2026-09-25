@@ -3,10 +3,12 @@ FastAPI Routes — REST API Endpoints
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List
 from bot.engine import engine
 from bot.binance_client import BinanceClient
+from bot.strategy import compute_signal, sentiment_blocks_buy
+from bot.safety import assert_live_allowed, LiveTradingBlocked, describe_mode
 from bot import config as cfg
 
 router = APIRouter()
@@ -14,52 +16,147 @@ router = APIRouter()
 
 # ─── Request Models ────────────────────────────────────────────────────────────
 
+_SYMBOL_MAX_LEN = 20
+_INTERVALS      = ("1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d")
+
+
+def _validate_symbol(v: str) -> str:
+    """Normalise to uppercase and reject junk before it reaches the exchange."""
+    v = v.strip().upper()
+    if not v:
+        raise ValueError("symbol cannot be empty")
+    if len(v) > _SYMBOL_MAX_LEN:
+        raise ValueError(f"symbol too long (max {_SYMBOL_MAX_LEN})")
+    if not v.isalnum():
+        raise ValueError("symbol may only contain letters and digits")
+    return v
+
+
+def _validate_interval(v: str) -> str:
+    v = v.strip().lower()
+    if v not in _INTERVALS:
+        raise ValueError(f"interval must be one of {list(_INTERVALS)}")
+    return v
+
+
+def _symbol_param(v: str) -> str:
+    """
+    Path/query-parameter variant of _validate_symbol.
+
+    A bare ValueError inside a path parameter is NOT converted by FastAPI into a
+    4xx response — it escapes as a 500. These wrappers turn bad input into a
+    clean 400 instead of a crash.
+    """
+    try:
+        return _validate_symbol(v)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+def _interval_param(v: str) -> str:
+    try:
+        return _validate_interval(v)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 class BotStartRequest(BaseModel):
     symbol:   Optional[str]  = None
     interval: Optional[str]  = None
     multi_symbol: Optional[bool] = None
     active_symbols: Optional[List[str]] = None
 
+    _sym = field_validator("symbol")(classmethod(lambda cls, v: _validate_symbol(v) if v else v))
+    _int = field_validator("interval")(classmethod(lambda cls, v: _validate_interval(v) if v else v))
+    _act = field_validator("active_symbols")(classmethod(
+        lambda cls, v: [_validate_symbol(s) for s in v] if v else v
+    ))
+
+
 class SettingsUpdate(BaseModel):
-    api_key:                Optional[str]   = None
-    secret_key:             Optional[str]   = None
+    # A misspelled setting is far more dangerous than a rejected request: it
+    # used to be silently ignored, leaving the bot running the old value.
+    model_config = ConfigDict(extra="forbid")
+
+    api_key:                Optional[str]   = Field(default=None, max_length=128)
+    secret_key:             Optional[str]   = Field(default=None, max_length=128)
     testnet:                Optional[bool]  = None
-    symbol:                 Optional[str]   = None
+    symbol:                 Optional[str]   = Field(default=None, max_length=_SYMBOL_MAX_LEN)
     interval:               Optional[str]   = None
-    trade_quantity_percent: Optional[float] = None
-    max_open_trades:        Optional[int]   = None
-    stop_loss_percent:      Optional[float] = None
-    take_profit_percent:    Optional[float] = None
+    trade_quantity_percent: Optional[float] = Field(default=None, ge=0.1, le=100)
+    max_open_trades:        Optional[int]   = Field(default=None, ge=1, le=50)
+    stop_loss_percent:      Optional[float] = Field(default=None, gt=0, le=50)
+    take_profit_percent:    Optional[float] = Field(default=None, gt=0, le=500)
     trailing_stop:          Optional[bool]  = None
-    trailing_stop_percent:  Optional[float] = None
-    ema_fast:               Optional[int]   = None
-    ema_slow:               Optional[int]   = None
-    rsi_period:             Optional[int]   = None
-    rsi_overbought:         Optional[float] = None
-    rsi_oversold:           Optional[float] = None
-    telegram_bot_token:     Optional[str]   = None
-    telegram_chat_id:       Optional[str]   = None
-    email_sender:           Optional[str]   = None
-    email_app_password:     Optional[str]   = None
-    email_receiver:         Optional[str]   = None
-    multi_symbol_mode:          Optional[bool]  = None
-    active_symbols:             Optional[List[str]] = None
-    discord_webhook_url:        Optional[str]   = None
-    daily_loss_limit_percent:   Optional[float] = None
-    sentiment_filter:           Optional[bool]  = None
-    mtf_enabled:                Optional[bool]  = None
+    trailing_stop_percent:  Optional[float] = Field(default=None, gt=0, le=50)
+    ema_fast:               Optional[int]   = Field(default=None, ge=2, le=200)
+    ema_slow:               Optional[int]   = Field(default=None, ge=3, le=400)
+    rsi_period:             Optional[int]   = Field(default=None, ge=2, le=100)
+    rsi_overbought:         Optional[float] = Field(default=None, ge=50, le=100)
+    rsi_oversold:           Optional[float] = Field(default=None, ge=0, le=50)
+    telegram_bot_token:     Optional[str]   = Field(default=None, max_length=128)
+    telegram_chat_id:       Optional[str]   = Field(default=None, max_length=64)
+    email_sender:           Optional[str]   = Field(default=None, max_length=254)
+    email_app_password:     Optional[str]   = Field(default=None, max_length=128)
+    email_receiver:         Optional[str]   = Field(default=None, max_length=254)
+    multi_symbol_mode:      Optional[bool]  = None
+    active_symbols:         Optional[List[str]] = None
+    discord_webhook_url:    Optional[str]   = Field(default=None, max_length=512)
+    daily_loss_limit_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    sentiment_filter:       Optional[bool]  = None
+    mtf_enabled:            Optional[bool]  = None
+
+    @field_validator("symbol")
+    @classmethod
+    def _sym(cls, v):
+        return _validate_symbol(v) if v else v
+
+    @field_validator("interval")
+    @classmethod
+    def _int(cls, v):
+        return _validate_interval(v) if v else v
+
+    @field_validator("active_symbols")
+    @classmethod
+    def _act(cls, v):
+        return [_validate_symbol(s) for s in v] if v else v
+
 
 class ManualTradeRequest(BaseModel):
     symbol:   str
-    side:     str              # BUY or SELL
-    quantity: Optional[float] = None
+    side:     str
+    quantity: Optional[float] = Field(default=None, gt=0)
+
+    @field_validator("symbol")
+    @classmethod
+    def _sym(cls, v):
+        return _validate_symbol(v)
+
+    @field_validator("side")
+    @classmethod
+    def _side(cls, v):
+        v = v.strip().upper()
+        if v not in ("BUY", "SELL"):
+            raise ValueError("side must be BUY or SELL")
+        return v
+
 
 class BacktestRequest(BaseModel):
     symbol:               str   = "BTCUSDT"
     interval:             str   = "15m"
-    limit:                int   = 500
-    initial_balance:      float = 1000.0
-    confidence_threshold: float = 60.0
+    limit:                int   = Field(default=500, ge=50, le=1000)
+    initial_balance:      float = Field(default=1000.0, gt=0, le=1e9)
+    confidence_threshold: float = Field(default=60.0, ge=0, le=100)
+
+    @field_validator("symbol")
+    @classmethod
+    def _sym(cls, v):
+        return _validate_symbol(v)
+
+    @field_validator("interval")
+    @classmethod
+    def _int(cls, v):
+        return _validate_interval(v)
 
 
 # ─── Bot Control ───────────────────────────────────────────────────────────────
@@ -69,9 +166,19 @@ def get_status():
     return engine.get_status()
 
 @router.post("/bot/start")
-async def start_bot(req: BotStartRequest):
+async def start_bot(req: BotStartRequest = BotStartRequest()):
     if engine.running:
         raise HTTPException(400, "Bot is already running")
+
+    # ── Safety interlock: refuse to start in live mode without opt-in ───────
+    mode = describe_mode(engine.config.get("TESTNET", True))
+    if not mode["live_allowed"]:
+        raise HTTPException(
+            403,
+            "Live trading is disabled. Switch to Testnet, or set "
+            "LIVE_TRADING_ENABLED=true on the server to allow real orders.",
+        )
+
     if req.symbol:
         engine.current_symbol = req.symbol
     if req.interval:
@@ -98,8 +205,12 @@ def stop_bot():
 @router.get("/settings")
 def get_settings():
     from bot.config import CRYPTO_PAIRS, FOREX_PAIRS
+    mode = describe_mode(engine.config.get("TESTNET", True))
     return {
         "testnet":                engine.config.get("TESTNET", False),
+        # What the bot will actually trade with right now. A stored live config
+        # that cannot be authorised reads as testnet here.
+        "effective_testnet":      engine.config.get("TESTNET", True) or not mode["live_allowed"],
         "symbol":                 engine.current_symbol,
         "interval":               engine.interval,
         "trade_quantity_percent": engine.config.get("TRADE_QUANTITY_PERCENT", 10),
@@ -122,6 +233,8 @@ def get_settings():
         "mtf_enabled":            engine.config.get("MTF_ENABLED", True),
         "multi_symbol_mode":      engine.config.get("MULTI_SYMBOL_MODE", False),
         "active_symbols":         engine.active_symbols,
+        "safety":                 mode,
+        "price_stream_url":       engine.price_stream.base,
         # Separated lists for frontend grouping
         "crypto_pairs":           CRYPTO_PAIRS,
         "forex_pairs":            FOREX_PAIRS,
@@ -167,8 +280,27 @@ def update_settings(settings: SettingsUpdate):
     if settings.mtf_enabled              is not None: update["MTF_ENABLED"]               = settings.mtf_enabled
 
     if update:
+        requested_live = update.get("TESTNET") is False
         engine.update_config(update)
-    return {"message": "Settings updated"}
+
+        # A refused live switch is surfaced as an error, not a silent downgrade,
+        # so the UI can tell the user their request was rejected.
+        if requested_live and engine.config.get("TESTNET", True):
+            raise HTTPException(
+                403,
+                "Live trading is disabled. Switch to Testnet, or set "
+                "LIVE_TRADING_ENABLED=true on the server to allow real orders.",
+            )
+
+    mode = describe_mode(engine.config.get("TESTNET", True))
+    # Report the *effective* mode — a rejected live switch is reported as testnet.
+    return {
+        "message": "Settings updated",
+        "testnet": engine.config.get("TESTNET", True),
+        # What the bot will actually trade with right now.
+        "effective_testnet": engine.config.get("TESTNET", True) or not mode["live_allowed"],
+        "safety":  mode,
+    }
 
 @router.post("/settings/test-connection")
 def test_connection(settings: SettingsUpdate):
@@ -179,6 +311,12 @@ def test_connection(settings: SettingsUpdate):
     )
     if client.test_connection():
         balance = client.get_balance("USDT")
+        if balance is None:
+            return {
+                "connected": True,
+                "usdt_balance": None,
+                "error": "Connected to Binance, but the USDT balance could not be read. Check the key's permissions.",
+            }
         return {"connected": True, "usdt_balance": balance}
     return {"connected": False, "error": "Could not connect to Binance"}
 
@@ -218,7 +356,7 @@ def test_discord():
 def get_sentiment(symbol: str = "BTCUSDT"):
     """Get Fear & Greed index + news sentiment"""
     from bot.sentiment import get_combined_sentiment
-    return get_combined_sentiment(symbol)
+    return get_combined_sentiment(_symbol_param(symbol))
 
 @router.get("/market/fear-greed")
 def get_fear_greed():
@@ -238,9 +376,13 @@ def get_bulk_prices(symbols: str = "BTCUSDT,ETHUSDT,BNBUSDT"):
     from bot.market_data import get_price, get_24h_stats
     result = {}
     for sym in symbols.split(","):
-        sym = sym.strip().upper()
+        sym = sym.strip()
         if not sym:
             continue
+        try:
+            sym = _symbol_param(sym)
+        except HTTPException:
+            continue                      # skip junk symbols, keep the rest
         try:
             stats = get_24h_stats(sym)
             result[sym] = {
@@ -256,27 +398,44 @@ def get_bulk_prices(symbols: str = "BTCUSDT,ETHUSDT,BNBUSDT"):
 @router.get("/market/{symbol}/price")
 def get_price(symbol: str):
     from bot.market_data import get_price as _get_price
-    price = _get_price(symbol.upper())
+    sym = _symbol_param(symbol)
+    price = _get_price(sym)
     if price is None:
         raise HTTPException(404, "Symbol not found")
-    return {"symbol": symbol.upper(), "price": price}
+    return {"symbol": sym, "price": price}
 
 @router.get("/market/{symbol}/stats")
 def get_market_stats(symbol: str):
-    return engine.client.get_24h_stats(symbol.upper())
+    return engine.client.get_24h_stats(_symbol_param(symbol))
 
 @router.get("/market/{symbol}/candles")
 def get_candles(symbol: str, interval: str = "15m", limit: int = 100):
-    df = engine.client.get_klines(symbol.upper(), interval, limit)
+    sym  = _symbol_param(symbol)
+    tf   = _interval_param(interval)
+    limit = max(1, min(limit, 1000))
+    df = engine.client.get_klines(sym, tf, limit)
     if df.empty:
         return []
     return df[["timestamp", "open", "high", "low", "close", "volume"]].to_dict(orient="records")
 
 @router.get("/market/{symbol}/signal")
 def get_signal(symbol: str):
-    from bot.indicators import generate_ai_signal
-    df = engine.client.get_klines(symbol.upper(), engine.interval, 200)
-    if df.empty:
+    """
+    Canonical signal for `symbol` — the same function the live engine calls, so
+    what the dashboard shows is what the bot actually trades on.
+
+    A fresh engine signal is preferred (it already has MTF + sentiment); it is
+    recomputed only when the engine has nothing cached for this symbol.
+    """
+    sym = _symbol_param(symbol)
+
+    # last_signal is None until the first engine cycle completes.
+    cached = (engine.last_signal or {}).get(sym)
+    if cached:
+        return cached
+
+    signal = compute_signal(sym, engine.config, interval=engine.interval, limit=200)
+    if signal is None:
         return {
             "action": "HOLD", "confidence": 50, "price": 0,
             "rsi": 50, "ema_fast": 0, "ema_slow": 0,
@@ -285,10 +444,8 @@ def get_signal(symbol: str):
             "stop_loss": None, "take_profit": None,
             "signals": ["Waiting for market data..."],
             "buy_score": 0, "sell_score": 0,
-            "symbol": symbol.upper()
+            "symbol": sym,
         }
-    signal = generate_ai_signal(df, engine.config)
-    signal["symbol"] = symbol.upper()
     return signal
 
 @router.get("/market/{symbol}/indicators")
@@ -301,7 +458,9 @@ def get_indicators(symbol: str, interval: str = "15m", limit: int = 200):
         calculate_ema, calculate_rsi, calculate_macd,
         calculate_bollinger_bands,
     )
-    df = engine.client.get_klines(symbol.upper(), interval, limit)
+    df = engine.client.get_klines(
+        _symbol_param(symbol), _interval_param(interval), max(1, min(limit, 1000))
+    )
     if df.empty:
         raise HTTPException(404, "No data")
 
@@ -352,19 +511,30 @@ def get_trade_history(limit: int = 100):
 @router.get("/trades/stats")
 def get_trade_stats():
     stats = engine.trade_manager.get_stats()
-    stats["usdt_balance"] = engine.client.get_balance("USDT")
+    balance = engine.client.get_balance("USDT")
+    stats["usdt_balance"] = balance if balance is not None else 0.0
+    stats["balance_ok"] = balance is not None
     return stats
 
 @router.post("/trades/manual")
 async def manual_trade(req: ManualTradeRequest):
-    symbol = req.symbol.upper()
+    symbol = req.symbol
+    side   = req.side
+
+    # ── Safety interlock: never place a real order without opt-in ──────────
+    try:
+        assert_live_allowed(
+            engine.config.get("TESTNET", True),
+            context=f"manual {side} {symbol}",
+        )
+    except LiveTradingBlocked as e:
+        raise HTTPException(403, str(e))
+
     price  = engine.client.get_ticker_price(symbol)
     if not price:
         raise HTTPException(404, "Could not get price for this symbol")
 
-    if req.side.upper() == "BUY":
-        from bot.indicators import generate_ai_signal
-
+    if side == "BUY":
         # Max open trades check
         open_count = len([t for t in engine.trade_manager.get_open_trades()])
         max_trades = engine.config.get("MAX_OPEN_TRADES", 3)
@@ -376,25 +546,32 @@ async def manual_trade(req: ManualTradeRequest):
         if already:
             raise HTTPException(400, f"Already have an open trade for {symbol}. Close it first before buying again.")
 
-        # Balance check — Testnet pe skip karo (fake money)
+        # Balance check — only for real money. Testnet uses simulated funds.
         if not engine.config.get("TESTNET", True):
             balance = engine.client.get_balance("USDT")
+            if balance is None:
+                raise HTTPException(400, "Could not read your USDT balance from Binance. Check the API key and network.")
             if balance <= 0:
-                raise HTTPException(400, "USDT balance is 0 or could not be fetched. Check your Binance API keys in Settings.")
+                raise HTTPException(400, "USDT balance is 0 — deposit funds before placing a live trade.")
 
-        df     = engine.client.get_klines(symbol, engine.interval, 200)
-        if df.empty:
+        signal = compute_signal(
+            symbol, engine.config, interval=engine.interval, limit=200
+        )
+        if signal is None:
             raise HTTPException(404, f"No candle data for {symbol}")
-        signal = generate_ai_signal(df, engine.config)
+
         signal["price"]      = price
         signal["action"]     = "BUY"
         signal["confidence"] = 99   # Manual override — skip confidence check
-        trade = engine.trade_manager.execute_buy(symbol, signal, force=True)
+        signal["forced"]     = True
+        trade = engine.trade_manager.execute_buy(
+            symbol, signal, force=True, quantity=req.quantity
+        )
         if trade:
             return {"message": f"Buy placed for {symbol}", "trade": trade}
-        raise HTTPException(400, "Buy failed — check Binance API keys in Settings.")
+        raise HTTPException(400, f"Buy failed for {symbol}. Check Binance keys, balance, and that the order size meets Binance's minimum notional.")
 
-    elif req.side.upper() == "SELL":
+    else:  # SELL
         open_trades = [t for t in engine.trade_manager.get_open_trades() if t["symbol"] == symbol]
         if not open_trades:
             raise HTTPException(404, f"No open trades for {symbol}. Nothing to sell.")
@@ -407,10 +584,18 @@ async def manual_trade(req: ManualTradeRequest):
             raise HTTPException(400, f"Could not close trades for {symbol}.")
         return {"message": f"Closed {len(results)} trade(s) for {symbol}", "trades": results}
 
-    raise HTTPException(400, "Invalid side — use BUY or SELL")
 
 @router.delete("/trades/{trade_id}")
 def close_trade(trade_id: str):
+    # ── Safety interlock ───────────────────────────────────────────────────
+    try:
+        assert_live_allowed(
+            engine.config.get("TESTNET", True),
+            context=f"close trade {trade_id[:8]}",
+        )
+    except LiveTradingBlocked as e:
+        raise HTTPException(403, str(e))
+
     price = None
     for t in engine.trade_manager.get_open_trades():
         if t["id"] == trade_id:
@@ -422,6 +607,7 @@ def close_trade(trade_id: str):
     if result:
         return {"message": "Trade closed", "trade": result}
     raise HTTPException(400, "Could not close trade")
+
 
 
 # ─── Backtesting ───────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ def run_backtest(
     config: dict,
     initial_balance: float = 1000.0,
     confidence_threshold: float = 60.0,
+    sentiment_lookup=None,
 ) -> dict:
     """
     Simulate the bot strategy on historical OHLCV data.
@@ -29,6 +30,10 @@ def run_backtest(
     config               : Same config dict the live engine uses
     initial_balance      : Starting USDT balance for simulation
     confidence_threshold : Min confidence % to enter a trade
+    sentiment_lookup     : Optional callable(symbol) -> sentiment dict, used when
+                           SENTIMENT_FILTER is on. Historical sentiment is not
+                           available, so without this the backtest runs on pure
+                           technicals — which is *not* what the live bot trades.
 
     Returns
     -------
@@ -118,8 +123,15 @@ def run_backtest(
 
         # ── Generate signal & maybe open a trade ──────────────────────────────
         if open_trade is None:
+            adjust = 0
+            if sentiment_lookup is not None and config.get("SENTIMENT_FILTER", True):
+                try:
+                    adjust = int(sentiment_lookup(config.get("SYMBOL", "")).get(
+                        "score_adjust", 0) or 0)
+                except Exception:
+                    adjust = 0
             try:
-                signal = generate_ai_signal(window, config)
+                signal = generate_ai_signal(window, config, sentiment_adjust=adjust)
             except Exception:
                 continue
 
@@ -202,7 +214,14 @@ def _compute_metrics(trades, equity_curve, initial_balance, final_balance) -> di
 
     gross_profit = sum(t["pnl"] for t in wins) if wins else 0
     gross_loss   = abs(sum(t["pnl"] for t in losses)) if losses else 0
-    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else float("inf")
+    # float("inf") is not valid JSON, so the client silently got a broken payload.
+    # Report a capped sentinel when there are no losing trades instead.
+    if gross_loss > 0:
+        profit_factor = round(gross_profit / gross_loss, 2)
+    elif gross_profit > 0:
+        profit_factor = 999.0   # no losing trades — capped, not infinite
+    else:
+        profit_factor = 0.0
 
     avg_win  = gross_profit / len(wins)   if wins   else 0
     avg_loss = gross_loss   / len(losses) if losses else 0

@@ -245,9 +245,11 @@ export default function Settings() {
               <Wifi size={13}/> {testingConn?"Testing...":"Test Connection"}
             </button>
             {connResult && (
-              <div className={`conn-result ${connResult.connected?"success":"error"}`}>
+              <div className={`conn-result ${connResult.connected&&!connResult.error?"success":"error"}`}>
                 {connResult.connected
-                  ? `✅ Connected — $${Number(connResult.usdt_balance||0).toFixed(2)} USDT`
+                  ? connResult.error
+                    ? `⚠️ ${connResult.error}`
+                    : `✅ Connected — $${Number(connResult.usdt_balance||0).toFixed(2)} USDT`
                   : `❌ ${connResult.error}`}
               </div>
             )}

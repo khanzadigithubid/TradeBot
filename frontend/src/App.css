@@ -1963,6 +1963,36 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
   border: 1px solid rgba(255,59,92,0.2);
 }
 
+/* Trading-mode banner: which mode the bot will actually trade in */
+.safety-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 8px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.safety-live {
+  background: rgba(255,59,92,0.14);
+  color: var(--red);
+  border: 1px solid rgba(255,59,92,0.35);
+  animation: badge-pulse-buy 1.4s infinite;
+}
+.safety-blocked {
+  background: rgba(255,193,7,0.12);
+  color: #ffc107;
+  border: 1px solid rgba(255,193,7,0.3);
+}
+.safety-testnet {
+  background: var(--green-dim);
+  color: var(--green);
+  border: 1px solid rgba(0,200,150,0.22);
+}
+
 .rp-signal-top {
   text-align: center;
   padding: 12px 0 8px;

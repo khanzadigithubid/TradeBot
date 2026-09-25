@@ -7,9 +7,13 @@ import pandas as pd
 import requests
 import hmac
 import hashlib
+import logging
+import math
 import time
 from urllib.parse import urlencode
 from typing import Optional, List, Dict
+
+logger = logging.getLogger(__name__)
 
 
 class BinanceClient:
@@ -17,6 +21,7 @@ class BinanceClient:
         self.api_key = api_key
         self.secret_key = secret_key
         self.testnet = testnet
+        self._info_cache: dict = {}
 
         if testnet:
             self.base_url = "https://testnet.binance.vision/api"
@@ -119,13 +124,32 @@ class BinanceClient:
         """Get account balances"""
         return self._get("/v3/account", signed=True)
 
-    def get_balance(self, asset: str = "USDT") -> float:
-        """Get specific asset balance"""
-        account = self.get_account_info()
-        if "balances" in account:
-            for bal in account["balances"]:
-                if bal["asset"] == asset:
-                    return float(bal["free"])
+    def get_balance(self, asset: str = "USDT"):
+        """
+        Free balance for `asset`.
+
+        Returns None when the balance could NOT be read (bad key, network down,
+        exchange error) and a float when the read succeeded. A genuine zero
+        balance returns 0.0 — callers must be able to tell the two apart, or
+        they will size orders from a number that does not exist.
+        """
+        try:
+            account = self.get_account_info()
+        except Exception as e:
+            logger.error(f"Balance read failed for {asset}: {e}")
+            return None
+
+        if not isinstance(account, dict) or "error" in account:
+            err = account.get("error") if isinstance(account, dict) else account
+            logger.error(f"Balance read failed for {asset}: {err}")
+            return None
+
+        for bal in account.get("balances", []) or []:
+            if bal.get("asset") == asset:
+                try:
+                    return float(bal.get("free", 0))
+                except (TypeError, ValueError):
+                    return None
         return 0.0
 
     # ─── Orders ────────────────────────────────────────────────────────────────
@@ -195,6 +219,127 @@ class BinanceClient:
         if symbol:
             params["symbol"] = symbol
         return self._get("/v3/openOrders", params, signed=True)
+
+    # ─── Exchange Filters ───────────────────────────────────────────────────
+
+    def get_exchange_info(self, symbol: str = None) -> dict:
+        """Raw /v3/exchangeInfo payload (cached per symbol)."""
+        sym = (symbol or "").upper()
+        if sym not in self._info_cache:
+            info = self._get("/v3/exchangeInfo")
+            entry = None
+            if isinstance(info, dict) and "symbols" in info:
+                for s in info["symbols"]:
+                    if s.get("symbol") == sym:
+                        entry = s
+                        break
+            self._info_cache[sym] = entry
+        return self._info_cache[sym] or {}
+
+    def get_symbol_filters(self, symbol: str) -> dict:
+        """
+        Extract the filters that matter for sizing a market order.
+        Returns a dict of the LOT_SIZE and NOTIONAL constraints for `symbol`.
+        """
+        info  = self.get_exchange_info(symbol)
+        out   = {
+            "step_size":        0.00001,
+            "min_qty":          0.0,
+            "max_qty":          0.0,
+            "min_notional":     0.0,
+            "tick_size":        0.01,
+            "price_precision":  2,
+            "found":            False,
+        }
+        for f in info.get("filters", []) or []:
+            ftype = f.get("filterType")
+            if ftype == "LOT_SIZE":
+                out["step_size"] = float(f.get("stepSize", out["step_size"]))
+                out["min_qty"]   = float(f.get("minQty", 0))
+                out["max_qty"]   = float(f.get("maxQty", 0))
+                out["found"]     = True
+            elif ftype in ("MARKET_LOT_SIZE",):
+                if not float(f.get("minQty", 0)):
+                    continue
+                out["step_size"] = float(f.get("stepSize", out["step_size"]))
+                out["min_qty"]   = float(f.get("minQty", 0))
+                out["max_qty"]   = float(f.get("maxQty", 0))
+                out["found"]     = True
+            elif ftype in ("MIN_NOTIONAL", "NOTIONAL"):
+                out["min_notional"] = float(
+                    f.get("minNotional", f.get("notional", 0)) or 0
+                )
+                out["found"] = True
+            elif ftype == "PRICE_FILTER":
+                out["tick_size"] = float(f.get("tickSize", out["tick_size"]))
+        # Derive precision from step size (0.001 -> 3 dp)
+        if out["step_size"] > 0:
+            out["qty_precision"] = max(
+                0, int(round(-math.log10(out["step_size"])))
+            )
+        else:
+            out["qty_precision"] = 5
+        return out
+
+    def normalize_quantity(self, symbol: str, quantity: float,
+                           price: float = 0.0) -> tuple:
+        """
+        Snap `quantity` onto the exchange's LOT_SIZE grid and verify it
+        satisfies MIN_NOTIONAL.
+        Returns (quantity, error_message). `error_message` is None on success.
+        """
+        if quantity <= 0:
+            return 0.0, f"Quantity must be > 0 (got {quantity})"
+
+        f = self.get_symbol_filters(symbol)
+        step   = f["step_size"] or 0.00001
+        prec   = f["qty_precision"]
+
+        # Snap to step size using decimal-safe rounding
+        steps     = round(quantity / step)
+        snapped   = round(steps * step, prec)
+
+        if snapped <= 0:
+            # Below a single step. If the exchange defines a min qty we can
+            # still place a valid order by rounding up to it; otherwise the
+            # request is genuinely unusable.
+            if f["min_qty"] > 0:
+                snapped = round(f["min_qty"], prec)
+            else:
+                return 0.0, (
+                    f"Quantity {quantity} rounds to 0 at step size {step} "
+                    f"for {symbol}"
+                )
+
+        if f["min_qty"] and snapped < f["min_qty"]:
+            snapped = round(f["min_qty"], prec)
+            if snapped <= 0:
+                return 0.0, (
+                    f"Quantity below min qty {f['min_qty']} for {symbol}"
+                )
+
+        if f["max_qty"] and snapped > f["max_qty"]:
+            return 0.0, f"Quantity exceeds max qty {f['max_qty']} for {symbol}"
+
+        if price > 0 and f["min_notional"]:
+            notional = snapped * price
+            if notional < f["min_notional"]:
+                return 0.0, (
+                    f"Order value ${notional:.4f} is below Binance minimum "
+                    f"notional ${f['min_notional']} for {symbol}. "
+                    f"Increase TRADE_QUANTITY_PERCENT or the account balance."
+                )
+
+        return snapped, None
+
+    def normalize_price(self, symbol: str, price: float) -> float:
+        """Snap a price onto the exchange's PRICE_FILTER tick size."""
+        f   = self.get_symbol_filters(symbol)
+        tick = f["tick_size"] or 0.01
+        return round(round(price / tick) * tick, 8)
+
+    def clear_filter_cache(self):
+        self._info_cache.clear()
 
     def get_order_history(self, symbol: str, limit: int = 50) -> list:
         """Get order history"""

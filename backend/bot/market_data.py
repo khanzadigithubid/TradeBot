@@ -45,8 +45,8 @@ FOREX_SYMBOLS = {
     "EURUSDT":  "EUR",
     "GBPUSDT":  "GBP",
     "JPYUSDT":  "JPY",
-    "AUDUSTDT": "AUD",
-    "CADUSTDT": "CAD",
+    "AUDUSDT": "AUD",
+    "CADUSDT": "CAD",
     "CHFUSDT":  "CHF",
 }
 
@@ -121,15 +121,14 @@ def _get_forex_price(symbol: str) -> float | None:
     except Exception as e:
         logger.debug(f"exchangerate.host failed for {symbol}: {e}")
 
-    # 4. Hardcoded approximate fallback (last resort)
-    fallback_rates = {
-        "EUR": 1.10, "GBP": 1.27, "JPY": 0.0067,
-        "AUD": 0.65, "CAD": 0.74, "CHF": 1.12,
-    }
-    if base_currency in fallback_rates:
-        logger.warning(f"Using hardcoded fallback rate for {symbol}")
-        return fallback_rates[base_currency]
-
+    # 4. No live rate available. Returning None means the synthetic-candle
+    #    fallback is skipped too — a hardcoded rate is off by several percent
+    #    (EURUSD is ~1.14, not 1.10) and would produce a confidently wrong
+    #    signal out of a number that never came from a market.
+    logger.error(
+        f"No live FX rate available for {symbol} — refusing to synthesise "
+        f"candles from a stale rate. Forex trading disabled for this symbol."
+    )
     return None
 
 
@@ -154,14 +153,17 @@ def _get_forex_klines(symbol: str, interval: str = "15m", limit: int = 200) -> p
         if r.status_code == 200:
             raw = r.json().get("rates", {})
             if raw:
-                return _build_forex_df(raw, limit)
+                daily = _build_forex_df(raw, limit)
+                out   = _resample_forex_df(daily, interval)
+                if out is not None and not out.empty:
+                    return out.tail(limit).reset_index(drop=True)
     except Exception as e:
         logger.debug(f"Frankfurter klines failed for {symbol}: {e}")
 
     # 2. exchangerate.host
     try:
         r = requests.get(
-            f"https://api.exchangerate.host/timeseries",
+            "https://api.exchangerate.host/timeseries",
             params={
                 "base": base_currency,
                 "symbols": "USD",
@@ -173,32 +175,50 @@ def _get_forex_klines(symbol: str, interval: str = "15m", limit: int = 200) -> p
         if r.status_code == 200:
             raw = r.json().get("rates", {})
             if raw:
-                return _build_forex_df(
+                daily = _build_forex_df(
                     {d: {"USD": v.get("USD", 0)} for d, v in raw.items()},
                     limit
                 )
+                out = _resample_forex_df(daily, interval)
+                if out is not None and not out.empty:
+                    return out.tail(limit).reset_index(drop=True)
     except Exception as e:
-        logger.debug(f"exchangerate.host timeseries failed: {e}")
+        logger.debug(f"exchangerate.host timeseries failed for {symbol}: {e}")
 
     # 3. Synthetic data from current price (last resort)
     price = _get_forex_price(symbol)
     if price:
-        logger.warning(f"Using synthetic forex data for {symbol}")
+        logger.warning(
+            f"Using synthetic forex data for {symbol} @ {interval} — indicators unreliable"
+        )
         rows = []
-        for i in range(min(limit, 90)):
-            day = datetime.now(timezone.utc) - timedelta(days=i)
+        step = _FOREX_RESAMPLE.get(interval) or "1D"
+        now  = datetime.now(timezone.utc)
+        for i in range(limit, 0, -1):
+            ts = now - timedelta(**{_STEP_UNIT[step]: i * _STEP_COUNT[step]})
             rows.append({
-                "timestamp": pd.Timestamp(day.strftime("%Y-%m-%d")),
+                "timestamp": ts,
                 "open":   price,
                 "high":   price * 1.002,
                 "low":    price * 0.998,
                 "close":  price,
                 "volume": 1000000.0,
             })
-        df = pd.DataFrame(rows[::-1])
-        return df.tail(limit).reset_index(drop=True)
+        return pd.DataFrame(rows)
 
     return pd.DataFrame()
+
+
+_STEP_UNIT = {
+    "1min": "minutes", "5min": "minutes", "15min": "minutes",
+    "30min": "minutes", "1h": "hours", "4h": "hours",
+    "W": "weeks", "ME": "days", "1D": "days",
+}
+_STEP_COUNT = {
+    "1min": 1, "5min": 5, "15min": 15, "30min": 30,
+    "1h": 1, "4h": 4, "W": 1, "ME": 30, "1D": 1,
+}
+
 
 
 def _build_forex_df(raw: dict, limit: int) -> pd.DataFrame:
@@ -218,7 +238,64 @@ def _build_forex_df(raw: dict, limit: int) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
     return df.tail(limit).reset_index(drop=True)
+
+
+# Free forex APIs only publish one rate per day, so sub-daily intervals have to
+# be resampled from that daily series instead of silently returning daily
+# candles labelled "1h" (which made 1h/4h forex signals meaningless).
+_FOREX_RESAMPLE = {
+    "1d": None, "1w": "W", "1M": "ME",
+    "4h": "4h", "1h": "1h", "30m": "30min",
+    "15m": "15min", "5m": "5min", "3m": "3min", "1m": "1min",
+}
+
+
+def _resample_forex_df(df: pd.DataFrame, interval: str) -> pd.DataFrame:
+    """
+    Upsample the daily forex series to `interval`. Intraday bars are
+    interpolated from the daily closes, so they are indicative rather than
+    true tick data — the UI labels these as approximate.
+    """
+    if df is None or df.empty:
+        return df
+
+    rule = _FOREX_RESAMPLE.get(interval, "1h")
+    if rule is None:
+        return df
+
+    d = df.copy()
+    d = d.set_index("timestamp").sort_index()
+
+    if rule in ("W", "ME"):
+        agg = {"open": "first", "high": "max", "low": "min",
+               "close": "last", "volume": "sum"}
+        out = d.resample(rule).agg(agg).dropna(subset=["close"])
+        return out.reset_index()
+
+    # Intraday: linearly interpolate between daily closes, then resample.
+    target = rule
+    full_idx = pd.date_range(
+        start=d.index.min(), end=d.index.max(), freq=target, tz="UTC"
+    )
+    if len(full_idx) == 0:
+        return df
+
+    close_interp = d["close"].reindex(
+        d.index.union(full_idx)
+    ).interpolate(method="time").reindex(full_idx)
+
+    out = pd.DataFrame({
+        "timestamp": full_idx,
+        "open":   close_interp.values,
+        "high":   close_interp.values * 1.0008,
+        "low":    close_interp.values * 0.9992,
+        "close":  close_interp.values,
+        "volume": 1000000.0 / max(1, len(full_idx) // max(1, len(d))),
+    }).dropna(subset=["close"])
+
+    return out.tail(1000).reset_index(drop=True)
 
 
 # ── Public Functions ───────────────────────────────────────────────────────────

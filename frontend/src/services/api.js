@@ -5,16 +5,47 @@
 // Local development mein: VITE_API_URL set karo frontend/.env.local mein
 // Production (Vercel): VITE_API_URL set karo Vercel environment variables mein
 const BASE_URL = import.meta.env.VITE_API_URL || "https://tradebot-omuy.onrender.com/api";
-const WS_URL   = import.meta.env.VITE_WS_URL  || "wss://tradebot-omuy.onrender.com/ws";
+
+// The socket must point at the SAME backend as the REST calls. Otherwise local
+// dev mixes the production bot's live data with the local API.
+function deriveWsUrl(base) {
+  try {
+    const u = new URL(base);
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    u.pathname = "/ws";
+    u.search = "";
+    return u.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+export const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  deriveWsUrl(BASE_URL) ||
+  "wss://tradebot-omuy.onrender.com/ws";
+
+// Matches the backend's API_SECRET. When the server has API_SECRET set this
+// header is required for /api/bot/*, /api/settings and /api/trades/manual.
+const API_SECRET = import.meta.env.VITE_API_SECRET || "";
+
+function authHeaders() {
+  return API_SECRET ? { "X-API-Secret": API_SECRET } : {};
+}
+
 async function request(endpoint, options = {}) {
   try {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+        ...(options.headers || {}),
+      },
       ...options,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: "Request failed" }));
-      throw new Error(err.detail || "Request failed");
+      throw new Error(err.detail || `Request failed (${res.status})`);
     }
     return await res.json();
   } catch (e) {

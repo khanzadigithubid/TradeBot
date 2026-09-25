@@ -19,7 +19,9 @@ if _backend_dir not in sys.path:
 
 from api.routes    import router
 from api.websocket import manager
+from api.auth      import auth_enabled, auth_middleware
 from bot.engine    import engine
+from bot.safety    import describe_mode
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="AI Trading Bot API",
     description="Professional AI Trading Bot — Auto Trading",
-    version="2.0.0",
+    version="2.1.0",
 )
 
 app.add_middleware(
@@ -40,6 +42,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Guard the money/config endpoints when API_SECRET is configured.
+app.middleware("http")(auth_middleware)
 
 app.include_router(router, prefix="/api")
 
@@ -131,6 +136,10 @@ async def daily_summary_loop():
                 if et:
                     try:
                         td = datetime.fromisoformat(et.replace("Z", "+00:00"))
+                        # TradeManager writes naive UTC via utcnow(); older rows may
+                        # already be tz-aware. Normalise before comparing with `now`.
+                        if td.tzinfo is None:
+                            td = td.replace(tzinfo=timezone.utc)
                         if (now - td).total_seconds() < 86400:
                             today_trades.append(t)
                     except Exception:
@@ -174,6 +183,26 @@ async def startup_event():
     logger.info("🚀 Trading Bot API Server Started!")
     logger.info("📡 WebSocket: ws://localhost:8000/ws")
     logger.info("📚 API Docs:  http://localhost:8000/docs")
+
+    # ── SAFETY BANNER ─────────────────────────────────────────────────────────
+    mode = describe_mode(engine.config.get("TESTNET", True))
+    if mode["testnet"]:
+        logger.info("🟡 MODE: TESTNET — simulated orders, no real funds at risk")
+    elif mode["live_allowed"]:
+        logger.warning("🔴 MODE: LIVE — real Binance orders will be sent")
+    else:
+        logger.warning(
+            "🛑 MODE: LIVE REQUESTED BUT BLOCKED — LIVE_TRADING_ENABLED is not set. "
+            "Forcing testnet."
+        )
+
+    if auth_enabled():
+        logger.info("🔐 API auth: ENABLED (X-API-Secret required for control endpoints)")
+    else:
+        logger.warning(
+            "⚠️  API auth: DISABLED — /api/bot/*, /api/settings and /api/trades/manual "
+            "are open to anyone. Set API_SECRET to protect them."
+        )
 
     # ── AUTO-START BOT ──────────────────────────────────────────────────────────
     try:

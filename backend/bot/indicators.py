@@ -179,11 +179,16 @@ def generate_mtf_score(df_fast: pd.DataFrame, df_medium: pd.DataFrame,
 
 def generate_ai_signal(df: pd.DataFrame, config: dict,
                         df_1h: pd.DataFrame = None,
-                        df_4h: pd.DataFrame = None) -> dict:
+                        df_4h: pd.DataFrame = None,
+                        sentiment_adjust: int = 0) -> dict:
     """
     Advanced AI Signal Generator
     Combines: EMA, RSI, MACD, BB, VWAP, Stoch RSI, S/R, SuperTrend,
               Williams %R, OBV, Volume + Multi-Timeframe analysis
+
+    `sentiment_adjust` is added to the raw scores BEFORE the BUY/SELL decision
+    is made, so sentiment genuinely influences the action instead of only
+    changing the displayed numbers.
     """
     close  = df["close"]
     high   = df["high"]
@@ -323,6 +328,18 @@ def generate_ai_signal(df: pd.DataFrame, config: dict,
             sell_score += 30
             signals.append(f"MTF Bearish ({mtf['total_bear']}/9 timeframes)")
 
+    # ── Technical scores locked in — snapshot before sentiment ───────────────
+    tech_buy_score, tech_sell_score = buy_score, sell_score
+
+    # 13. Sentiment adjustment (applied BEFORE the decision) — NEW
+    if sentiment_adjust:
+        if sentiment_adjust > 0:
+            buy_score += sentiment_adjust
+            signals.append(f"Sentiment Bullish (+{sentiment_adjust})")
+        else:
+            sell_score += abs(sentiment_adjust)
+            signals.append(f"Sentiment Bearish ({sentiment_adjust})")
+
     # ── Final Decision ─────────────────────────────────────────────────────────
     total_score = max(buy_score + sell_score, 1)
 
@@ -378,5 +395,8 @@ def generate_ai_signal(df: pd.DataFrame, config: dict,
         "signals":      signals,
         "buy_score":    buy_score,
         "sell_score":   sell_score,
+        "tech_buy_score":  tech_buy_score,
+        "tech_sell_score": tech_sell_score,
+        "sentiment_adjust": sentiment_adjust,
         "mtf":          mtf,
     }

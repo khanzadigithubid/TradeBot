@@ -2,10 +2,13 @@ import { X, TrendingUp, ShieldAlert, Target, Clock } from "lucide-react";
 import { closeTrade } from "../services/api";
 
 export default function OpenTradeCard({ trade, currentPrice, onClose }) {
-  const entry   = trade.entry_price;
-  const price   = currentPrice || entry;
-  const pnl     = (price - entry) * trade.quantity;
-  const pnlPct  = ((price - entry) / entry) * 100;
+  const entry = trade.entry_price;
+  // Without a price for THIS trade's symbol we must not invent one — showing
+  // the entry price back would read as a flat 0.00 position.
+  const hasPrice = Number.isFinite(currentPrice) && currentPrice > 0;
+  const price    = hasPrice ? currentPrice : entry;
+  const pnl      = (price - entry) * trade.quantity;
+  const pnlPct   = ((price - entry) / entry) * 100;
   const isProfit = pnl >= 0;
 
   async function handleClose() {
@@ -35,8 +38,8 @@ export default function OpenTradeCard({ trade, currentPrice, onClose }) {
           <span className="trade-symbol">{trade.symbol}</span>
           <span className="trade-side buy">LONG</span>
         </div>
-        <div className={`tc-pnl-badge ${isProfit ? "tc-pnl-pos" : "tc-pnl-neg"}`}>
-          {isProfit ? "+" : ""}{pnl.toFixed(4)}
+        <div className={`tc-pnl-badge ${hasPrice ? (isProfit ? "tc-pnl-pos" : "tc-pnl-neg") : ""}`}>
+          {hasPrice ? `${isProfit ? "+" : ""}${pnl.toFixed(4)}` : "—"}
         </div>
       </div>
 
@@ -48,8 +51,8 @@ export default function OpenTradeCard({ trade, currentPrice, onClose }) {
         </div>
         <div className="trade-row">
           <span>Current</span>
-          <span style={{ color: isProfit ? "var(--green)" : "var(--red)", fontWeight: 700 }}>
-            ${Number(price).toLocaleString()}
+          <span style={{ color: hasPrice ? (isProfit ? "var(--green)" : "var(--red)") : "var(--text3)", fontWeight: 700 }}>
+            {hasPrice ? `$${Number(price).toLocaleString()}` : "Waiting for price…"}
           </span>
         </div>
         <div className="trade-row">
@@ -81,11 +84,17 @@ export default function OpenTradeCard({ trade, currentPrice, onClose }) {
           </div>
         )}
 
-        <div className={`trade-pnl ${isProfit ? "profit" : "loss"}`}>
-          {isProfit ? "+" : ""}{pnl.toFixed(4)} USDT
-          <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.8 }}>
-            ({pnlPct.toFixed(2)}%)
-          </span>
+        <div className={`trade-pnl ${hasPrice ? (isProfit ? "profit" : "loss") : ""}`}>
+          {hasPrice ? (
+            <>
+              {isProfit ? "+" : ""}{pnl.toFixed(4)} USDT
+              <span style={{ fontSize: 11, marginLeft: 6, opacity: 0.8 }}>
+                ({pnlPct.toFixed(2)}%)
+              </span>
+            </>
+          ) : (
+            <span style={{ opacity: 0.7 }}>Unrealised P&amp;L unavailable</span>
+          )}
         </div>
       </div>
 

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-
-const WS_URL = import.meta.env.VITE_WS_URL || "wss://tradebot-omuy.onrender.com/ws";
+import { WS_URL } from "../services/api";
 
 export function useWebSocket() {
   const [connected, setConnected] = useState(false);

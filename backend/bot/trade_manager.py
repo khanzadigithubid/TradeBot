@@ -79,15 +79,57 @@ class TradeManager:
 
     # ── Quantity ───────────────────────────────────────────────────────────────
 
-    def get_trade_quantity(self, symbol: str, price: float) -> float:
-        balance      = self.client.get_balance("USDT")
-        # Testnet pe balance 0 aaye to default 1000 USDT maan lo
+    def get_trade_quantity(self, symbol: str, price: float) -> tuple:
+        """
+        Size a position from a percentage of the real USDT balance.
+
+        Fails closed. A previous version substituted a fictional $1000 balance
+        whenever the read returned 0, which meant an invalid API key, a network
+        failure or a Binance outage all produced orders sized against money the
+        account never had. An unreadable balance now refuses the trade.
+
+        Returns (quantity, error).
+        """
+        if not price or price <= 0:
+            return 0.0, f"Cannot size {symbol}: invalid price {price}"
+
+        balance = self.client.get_balance("USDT")
+
+        if balance is None:
+            return 0.0, (
+                f"Cannot size {symbol}: USDT balance could not be read from "
+                f"Binance (check the API key, permissions and network)"
+            )
         if balance <= 0:
-            balance = 1000.0
-        trade_pct    = self.config.get("TRADE_QUANTITY_PERCENT", 10) / 100
-        usdt_to_use  = balance * trade_pct
-        quantity     = usdt_to_use / price
-        return round(quantity, 5)
+            return 0.0, (
+                f"Cannot size {symbol}: USDT balance is {balance:.8f} — "
+                f"no funds available to trade with"
+            )
+
+        trade_pct   = self.config.get("TRADE_QUANTITY_PERCENT", 10) / 100
+        usdt_to_use = balance * trade_pct
+        if usdt_to_use <= 0:
+            return 0.0, f"Cannot size {symbol}: TRADE_QUANTITY_PERCENT produced 0"
+
+        return round(usdt_to_use / price, 8), None
+
+    def size_order(self, symbol: str, quantity: float, price: float) -> tuple:
+        """
+        Snap the order size onto Binance's LOT_SIZE grid and check MIN_NOTIONAL.
+        Returns (quantity, error). Falls back to the raw quantity when exchange
+        info is unavailable (e.g. no network) so trading is not hard-blocked.
+        """
+        try:
+            qty, err = self.client.normalize_quantity(symbol, quantity, price)
+            if err:
+                logger.warning(f"Order sizing rejected for {symbol}: {err}")
+                return 0.0, err
+            if abs(qty - quantity) > 1e-12:
+                logger.debug(f"Order size {quantity} -> {qty} (LOT_SIZE grid)")
+            return qty, None
+        except Exception as e:
+            logger.warning(f"Could not read exchange filters for {symbol}: {e}")
+            return quantity, None
 
     # ── SL / TP calculation ────────────────────────────────────────────────────
 
@@ -105,22 +147,31 @@ class TradeManager:
         atr_tp = signal.get("take_profit")
 
         if side == "BUY":
-            sl_from_pct = round(entry_price * (1 - sl_pct), 4)
-            tp_from_pct = round(entry_price * (1 + tp_pct), 4)
+            sl_from_pct = entry_price * (1 - sl_pct)
+            tp_from_pct = entry_price * (1 + tp_pct)
             # Use whichever stop loss is lower (wider protection)
             stop_loss   = min(sl_from_pct, atr_sl) if atr_sl else sl_from_pct
             take_profit = max(tp_from_pct, atr_tp) if atr_tp else tp_from_pct
         else:
-            sl_from_pct = round(entry_price * (1 + sl_pct), 4)
-            tp_from_pct = round(entry_price * (1 - tp_pct), 4)
+            sl_from_pct = entry_price * (1 + sl_pct)
+            tp_from_pct = entry_price * (1 - tp_pct)
             stop_loss   = max(sl_from_pct, atr_sl) if atr_sl else sl_from_pct
             take_profit = min(tp_from_pct, atr_tp) if atr_tp else tp_from_pct
 
-        return round(stop_loss, 4), round(take_profit, 4)
+        # Snap to the exchange tick size so stops are actually triggerable.
+        sym = signal.get("_symbol") or ""
+        if sym:
+            try:
+                stop_loss   = self.client.normalize_price(sym, stop_loss)
+                take_profit = self.client.normalize_price(sym, take_profit)
+            except Exception:
+                pass
+        return round(stop_loss, 8), round(take_profit, 8)
 
     # ── Execute BUY ────────────────────────────────────────────────────────────
 
-    def execute_buy(self, symbol: str, signal: dict, force: bool = False) -> Optional[dict]:
+    def execute_buy(self, symbol: str, signal: dict, force: bool = False,
+                    quantity: Optional[float] = None) -> Optional[dict]:
         # Max open trades check (global) — force=True pe skip (manual trade)
         if not force:
             open_count = len([t for t in self.trades if t.get("status") == "OPEN"])
@@ -129,13 +180,26 @@ class TradeManager:
                 logger.info(f"Max open trades ({max_trades}) reached — skipping BUY")
                 return None
 
-        price    = signal["price"]
-        quantity = self.get_trade_quantity(symbol, price)
-        if quantity <= 0:
-            logger.warning(f"Quantity 0 for {symbol} — insufficient balance?")
+        price = signal["price"]
+
+        if quantity and quantity > 0:
+            raw_qty = float(quantity)
+        else:
+            raw_qty, qty_err = self.get_trade_quantity(symbol, price)
+            if qty_err:
+                logger.error(f"Skipping BUY {symbol}: {qty_err}")
+                return None
+
+        # Snap to Binance LOT_SIZE grid and verify MIN_NOTIONAL before sending
+        quantity, size_err = self.size_order(symbol, raw_qty, price)
+        if size_err or quantity <= 0:
+            logger.warning(f"Skipping BUY {symbol}: {size_err or 'quantity 0'}")
             return None
 
+        signal = dict(signal)
+        signal["_symbol"] = symbol
         stop_loss, take_profit = self._calculate_sl_tp("BUY", price, signal)
+        signal.pop("_symbol", None)
 
         # Place order
         if self.config.get("TESTNET", True):
@@ -150,8 +214,9 @@ class TradeManager:
         else:
             order = self.client.place_market_buy(symbol, quantity)
 
-        if "error" in order:
-            logger.error(f"BUY order failed: {order['error']}")
+        if not isinstance(order, dict) or "error" in order:
+            err = order.get("error") if isinstance(order, dict) else order
+            logger.error(f"BUY order failed: {err}")
             return None
 
         trade = {
@@ -206,8 +271,9 @@ class TradeManager:
         else:
             order = self.client.place_market_sell(symbol, quantity)
 
-        if "error" in order:
-            logger.error(f"SELL order failed: {order['error']}")
+        if not isinstance(order, dict) or "error" in order:
+            err = order.get("error") if isinstance(order, dict) else order
+            logger.error(f"SELL order failed: {err}")
             return None
 
         entry_price  = trade["entry_price"]
@@ -215,7 +281,7 @@ class TradeManager:
         pnl_percent  = ((current_price - entry_price) / entry_price) * 100
 
         trade["status"]       = "CLOSED"
-        trade["exit_price"]   = current_price
+        trade["exit_price"]   = round(current_price, 8)
         trade["exit_time"]    = datetime.utcnow().isoformat()
         trade["pnl"]          = round(pnl, 4)
         trade["pnl_percent"]  = round(pnl_percent, 2)

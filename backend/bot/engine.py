@@ -28,6 +28,8 @@ from bot.resend_notifier  import ResendNotifier
 from bot.discord_notifier import DiscordNotifier
 from bot.sentiment        import get_combined_sentiment
 from bot.price_stream     import PriceStream
+from bot.strategy         import compute_signal, sentiment_blocks_buy
+from bot.safety           import assert_live_allowed, LiveTradingBlocked, describe_mode
 from bot                  import config as cfg
 from bot.settings_store   import load_settings, save_settings
 from bot.market_data      import get_klines
@@ -125,7 +127,7 @@ class TradingEngine:
         )
 
         # Daily loss tracking
-        self._daily_start_balance: float = 0.0
+        self._daily_start_balance: Optional[float] = None
         self._daily_loss_stopped: bool   = False
         self._last_sentiment: dict       = {}
 
@@ -157,9 +159,20 @@ class TradingEngine:
 
         if any(k in new_config for k in
                ("BINANCE_API_KEY", "BINANCE_SECRET_KEY", "TESTNET")):
+            # Live trading must be explicitly authorised, otherwise the request
+            # is downgraded to testnet rather than silently enabling real orders.
+            if "TESTNET" in new_config and new_config["TESTNET"] is False:
+                try:
+                    assert_live_allowed(False, context="update_config(TESTNET=false)")
+                except LiveTradingBlocked as e:
+                    logger.error(f"🛑 Live trading rejected — {e}")
+                    self.config["TESTNET"] = True
+                    new_config = dict(new_config)
+                    new_config["TESTNET"] = True
             self._build_client()
             self.trade_manager.client = self.client
-            self.price_stream.testnet = self.config.get("TESTNET", True)
+            self.trade_manager.config = self.config
+            self.price_stream.set_testnet(self.config.get("TESTNET", True))
 
         if any(k in new_config for k in
                ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")):
@@ -178,13 +191,20 @@ class TradingEngine:
             )
             self.trade_manager.email_notifier = self.email_notifier
 
-        if any(k in new_config for k in ("RESEND_API_KEY", "EMAIL_RECEIVER")):
+        if any(k in new_config for k in
+               ("RESEND_API_KEY", "EMAIL_RECEIVER")):
             self.resend_notifier = ResendNotifier(
                 api_key        = self.config.get("RESEND_API_KEY", ""),
                 receiver_email = self.config.get("EMAIL_RECEIVER", ""),
                 sender_email   = self.config.get("EMAIL_SENDER", ""),
             )
             self.trade_manager.resend_notifier = self.resend_notifier
+
+        if "DISCORD_WEBHOOK_URL" in new_config:
+            self.discord_notifier = DiscordNotifier(
+                webhook_url = self.config.get("DISCORD_WEBHOOK_URL", ""),
+            )
+            self.trade_manager.discord_notifier = self.discord_notifier
 
         self.trade_manager.config = self.config
 
@@ -231,6 +251,44 @@ class TradingEngine:
 
     # ── Single symbol cycle ────────────────────────────────────────────────────
 
+    async def _enforce_sltp_candle_level(self, symbol: str, df) -> list:
+        """
+        Safety net for when the WebSocket price stream is down.
+
+        check_stop_loss_take_profit() normally fires on every price tick. If the
+        stream is unhealthy (geo-block, 404, disconnect) those ticks stop and
+        stops silently never get evaluated while the position stays open. This
+        walks the freshly closed candle and evaluates the stop against its
+        high/low so protection degrades from tick-accurate to candle-accurate
+        instead of disappearing.
+        """
+        closed_trades = []
+        if df is None or getattr(df, "empty", True):
+            return closed_trades
+
+        last = df.iloc[-1]
+        high = float(last["high"])
+        low  = float(last["low"])
+
+        for price, label in ((low, "low"), (high, "high")):
+            if not price or price <= 0:
+                continue
+            try:
+                result = self.trade_manager.check_stop_loss_take_profit(symbol, price)
+            except Exception as e:
+                logger.error(f"[{symbol}] candle-level SL/TP check failed: {e}")
+                break
+            for trade in result:
+                trade["sl_tp_source"] = f"CANDLE_{label.upper()}"
+                logger.warning(
+                    f"[{symbol}] Stop triggered without price stream "
+                    f"(candle {label}={price}) — reason={trade.get('close_reason')}"
+                )
+                closed_trades.append(trade)
+            if closed_trades:
+                break
+        return closed_trades
+
     async def run_cycle(self, symbol: str):
         """One analysis + trade cycle for a single symbol."""
         try:
@@ -253,55 +311,48 @@ class TradingEngine:
             if self._daily_loss_stopped:
                 return
 
-            # ── Multi-Timeframe data ───────────────────────────────────────────
-            df_1h = None
-            df_4h = None
-            if self.config.get("MTF_ENABLED", True):
-                try:
-                    df_1h = get_klines(symbol, "1h", 100)
-                    df_4h = get_klines(symbol, "4h", 100)
-                except Exception:
-                    pass
+            # ── Stop-loss / take-profit safety net ─────────────────────────────
+            # Always run, so stops are enforced even if the stream is dead.
+            stream_ok = self.price_stream.is_healthy(symbol)
+            if not stream_ok and self.trade_manager.get_open_trades():
+                for t in self.trade_manager.get_open_trades():
+                    if t["symbol"] == symbol:
+                        closed = await self._enforce_sltp_candle_level(symbol, df)
+                        for trade in closed:
+                            await self.broadcast({
+                                "type":   "TRADE_CLOSED",
+                                "trade":  trade,
+                                "reason": trade.get("close_reason"),
+                            })
+                        break
 
-            # ── Sentiment filter ───────────────────────────────────────────────
-            sentiment = {}
-            if self.config.get("SENTIMENT_FILTER", True):
-                try:
-                    sentiment = get_combined_sentiment(symbol)
-                    self._last_sentiment = sentiment
-                except Exception:
-                    pass
+            # ── Signal (shared with the API so both agree) ─────────────────────
+            signal = compute_signal(
+                symbol, self.config,
+                interval=self.interval,
+                limit=cfg.CANDLE_LIMIT,
+                df=df,
+            )
+            if signal is None:
+                logger.warning(f"[{symbol}] Could not build signal")
+                return
 
-            # ── Generate signal ────────────────────────────────────────────────
-            signal = generate_ai_signal(df, self.config, df_1h, df_4h)
-
-            # Apply sentiment adjustment
-            if sentiment:
-                adj = sentiment.get("score_adjust", 0)
-                if adj > 0:
-                    signal["buy_score"]  += adj
-                    signal["signals"].append(f"Sentiment Bullish (+{adj})")
-                elif adj < 0:
-                    signal["sell_score"] += abs(adj)
-                    signal["signals"].append(f"Sentiment Bearish ({adj})")
-
-            signal["symbol"]    = symbol
             signal["timestamp"] = datetime.utcnow().isoformat()
-            signal["sentiment"] = sentiment
+            sentiment = signal.get("sentiment") or {}
+            self._last_sentiment = sentiment
             self.last_signal[symbol] = signal
 
             logger.info(
                 f"[{symbol}] ${current_price:.4f} | "
                 f"{signal['action']} {signal['confidence']}% | "
                 f"RSI:{signal['rsi']:.1f} | "
-                f"MTF:{signal.get('mtf', {}).get('mtf_trend', 'N/A') if signal.get('mtf') else 'OFF'}"
+                f"buy:{signal['buy_score']} sell:{signal['sell_score']} | "
+                f"stream:{'OK' if stream_ok else 'DEAD (candle fallback)'}"
             )
 
             # ── BUY ────────────────────────────────────────────────────────────
             if signal["action"] == "BUY" and signal["confidence"] >= 60:
-                # Block if extreme greed sentiment
-                fng_signal = sentiment.get("fear_greed", {}).get("signal", "NEUTRAL")
-                if fng_signal == "EXTREME_GREED" and self.config.get("SENTIMENT_FILTER", True):
+                if sentiment_blocks_buy(sentiment, self.config):
                     logger.info(f"[{symbol}] BUY blocked — Extreme Greed sentiment")
                 else:
                     already_open = [t for t in self.trade_manager.get_open_trades()
@@ -325,13 +376,17 @@ class TradingEngine:
                         })
 
             # ── Broadcast state ────────────────────────────────────────────────
+            live_balance = self.client.get_balance("USDT")
+            if live_balance is None:
+                logger.warning(f"[{symbol}] Balance unreadable — reporting 0 in UI")
             await self.broadcast({
                 "type":        "SIGNAL_UPDATE",
                 "symbol":      symbol,
                 "signal":      signal,
                 "stats":       self.trade_manager.get_stats(),
                 "open_trades": self.trade_manager.get_open_trades(),
-                "balance":     self.client.get_balance("USDT"),
+                "balance":     live_balance if live_balance is not None else 0.0,
+                "balance_ok":  live_balance is not None,
                 "sentiment":   sentiment,
             })
 
@@ -352,8 +407,34 @@ class TradingEngine:
 
     # ── Start / Stop ───────────────────────────────────────────────────────────
 
+    def _force_testnet_if_unsafe(self) -> bool:
+        """
+        Safety interlock. Never boot into live trading without explicit opt-in.
+        Returns True if the mode had to be forced back to testnet.
+        """
+        if self.config.get("TESTNET", True):
+            return False
+        try:
+            assert_live_allowed(False, context="engine.start()")
+            return False
+        except LiveTradingBlocked as e:
+            logger.error(f"🛑 Live trading blocked — {e}")
+            self.config["TESTNET"] = True
+            self._build_client()
+            self.trade_manager.client   = self.client
+            self.trade_manager.config   = self.config
+            self.price_stream.set_testnet(True)
+            logger.warning(
+                "🟡 Forced back to TESTNET. "
+                "Set LIVE_TRADING_ENABLED=true to allow real orders."
+            )
+            return True
+
     async def start(self):
         """Start all symbol loops + price stream."""
+        # ── Safety interlock: never boot into live trading without opt-in ────
+        self._force_testnet_if_unsafe()
+
         self.running = True
         self.trade_manager.bot_running = True
 
@@ -373,12 +454,15 @@ class TradingEngine:
                 self._symbol_tasks[sym] = task
 
         # Init daily loss tracking
-        try:
-            self._daily_start_balance = self.client.get_balance("USDT")
-            self._daily_loss_stopped  = False
-        except Exception as e:
-            logger.warning(f"Could not fetch initial balance: {e}")
-            self._daily_start_balance = 0.0
+        self._daily_start_balance = self.client.get_balance("USDT")
+        if self._daily_start_balance is None:
+            logger.error(
+                "Could not read the starting USDT balance — daily loss limit "
+                "tracking stays disabled until a balance can be read"
+            )
+        else:
+            logger.info(f"Daily loss baseline: {self._daily_start_balance:.2f} USDT")
+        self._daily_loss_stopped = False
 
         # Notifications — wrapped individually so one failure doesn't crash start
         try: self.notifier.bot_started(symbols, self.interval)
@@ -427,8 +511,12 @@ class TradingEngine:
             return
         try:
             balance = self.client.get_balance("USDT")
-            if self._daily_start_balance <= 0:
+            if balance is None:
+                logger.warning("Balance unreadable — skipping daily loss check")
+                return
+            if not self._daily_start_balance or self._daily_start_balance <= 0:
                 self._daily_start_balance = balance
+                logger.info(f"Daily loss baseline set to {balance:.2f} USDT")
                 return
             loss_pct = ((self._daily_start_balance - balance) / self._daily_start_balance) * 100
             if loss_pct >= limit_pct:
@@ -451,16 +539,22 @@ class TradingEngine:
     # ── Status ─────────────────────────────────────────────────────────────────
 
     def get_status(self) -> dict:
+        symbols = self._resolve_symbols()
         return {
             "running":        self.running,
             "symbol":         self.current_symbol,
-            "active_symbols": self._resolve_symbols(),
+            "active_symbols": symbols,
             "interval":       self.interval,
             "testnet":        self.config.get("TESTNET", True),
             "multi_symbol":   self.config.get("MULTI_SYMBOL_MODE", False),
             "last_signal":    self.last_signal,
             "stats":          self.trade_manager.get_stats(),
             "open_trades":    self.trade_manager.get_open_trades(),
+            "safety":         describe_mode(self.config.get("TESTNET", True)),
+            "price_stream": {
+                "url":       self.price_stream.base,
+                "healthy":   {s: self.price_stream.is_healthy(s) for s in symbols},
+            },
         }
 
 

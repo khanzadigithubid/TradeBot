@@ -67,11 +67,10 @@ export default function PriceChart({ symbol = "BTCUSDT", interval = "15m", liveP
     });
   }, []);
 
-  // ── Build all charts on mount ──────────────────────────────────────────────
+  // ── Main chart lifecycle (created once) ────────────────────────────────────
   useEffect(() => {
     if (!mainRef.current) return;
 
-    // Main chart
     const mc = makeChart(mainRef.current, 320);
     mainChart.current = mc;
     candleRef.current = mc.addSeries(CandlestickSeries, {
@@ -88,64 +87,92 @@ export default function PriceChart({ symbol = "BTCUSDT", interval = "15m", liveP
     bbMidRef.current   = mc.addSeries(LineSeries, { color: "rgba(41,98,255,0.2)", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
     bbLowerRef.current = mc.addSeries(LineSeries, { color: "rgba(41,98,255,0.4)", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
 
-    // RSI chart
-    if (rsiRef.current) {
-      const rc = makeChart(rsiRef.current, 90, {
-        priceScale: { scaleMargins: { top: 0.1, bottom: 0.1 } },
-        timeScale:  { visible: false },
-      });
-      rsiChart.current = rc;
-      rsiSerRef.current = rc.addSeries(LineSeries, { color: "#4c8dff", lineWidth: 2, priceLineVisible: false });
-    }
-
-    // MACD chart
-    if (macdRef.current) {
-      const xc = makeChart(macdRef.current, 90, {
-        priceScale: { scaleMargins: { top: 0.2, bottom: 0.2 } },
-        timeScale:  { visible: false },
-      });
-      macdChart.current = xc;
-      macdHistRef.current = xc.addSeries(HistogramSeries, { priceLineVisible: false });
-      macdLineRef.current = xc.addSeries(LineSeries, { color: "#4c8dff", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      macdSigRef.current  = xc.addSeries(LineSeries, { color: "#f5a623", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-    }
-
-    // Sync crosshairs
-    const syncCrosshair = (srcChart, targets) => {
-      srcChart.subscribeCrosshairMove(({ time }) => {
-        targets.forEach(t => {
-          if (t && time !== undefined) t.setCrosshairPosition(0, time, t.series);
-        });
-      });
-    };
-    // (lightweight-charts v5 doesn't expose setCrosshairPosition on chart directly;
-    //  time-scale sync is handled by shared time data)
-
-    // ResizeObserver
+    // ResizeObserver for the main panel
     const ro = new ResizeObserver(() => {
-      [
-        [mainRef,  mc],
-        [rsiRef,   rsiChart.current],
-        [macdRef,  macdChart.current],
-      ].forEach(([ref, chart]) => {
-        if (ref.current && chart) {
-          chart.applyOptions({ width: ref.current.clientWidth });
-        }
-      });
+      if (mainRef.current && mainChart.current) {
+        mainChart.current.applyOptions({ width: mainRef.current.clientWidth });
+      }
     });
     ro.observe(mainRef.current);
 
     return () => {
       ro.disconnect();
       mc.remove();
-      rsiChart.current?.remove();
-      macdChart.current?.remove();
-      mainChart.current  = null;
-      rsiChart.current   = null;
-      macdChart.current  = null;
+      mainChart.current = null;
+      candleRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── RSI sub-chart lifecycle (follows the showRsi toggle) ──────────────────
+  // Previously both sub-charts were built once on mount, so hiding a panel
+  // unmounted its container and re-showing it left a blank box with no chart.
+  useEffect(() => {
+    if (!showRsi || !rsiRef.current) {
+      rsiChart.current?.remove();
+      rsiChart.current = null;
+      rsiSerRef.current = null;
+      return;
+    }
+    const rc = makeChart(rsiRef.current, 90, {
+      priceScale: { scaleMargins: { top: 0.1, bottom: 0.1 } },
+      timeScale:  { visible: false },
+    });
+    rsiChart.current = rc;
+    rsiSerRef.current = rc.addSeries(LineSeries, { color: "#4c8dff", lineWidth: 2, priceLineVisible: false });
+
+    const ro = new ResizeObserver(() => {
+      if (rsiRef.current && rsiChart.current) {
+        rsiChart.current.applyOptions({ width: rsiRef.current.clientWidth });
+      }
+    });
+    ro.observe(rsiRef.current);
+
+    return () => {
+      ro.disconnect();
+      rsiChart.current?.remove();
+      rsiChart.current = null;
+      rsiSerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRsi]);
+
+  // ── MACD sub-chart lifecycle (follows the showMacd toggle) ────────────────
+  useEffect(() => {
+    if (!showMacd || !macdRef.current) {
+      macdChart.current?.remove();
+      macdChart.current = null;
+      macdHistRef.current = null;
+      macdLineRef.current = null;
+      macdSigRef.current = null;
+      return;
+    }
+    const xc = makeChart(macdRef.current, 90, {
+      priceScale: { scaleMargins: { top: 0.2, bottom: 0.2 } },
+      timeScale:  { visible: false },
+    });
+    macdChart.current = xc;
+    macdHistRef.current = xc.addSeries(HistogramSeries, { priceLineVisible: false });
+    macdLineRef.current = xc.addSeries(LineSeries, { color: "#4c8dff", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+    macdSigRef.current  = xc.addSeries(LineSeries, { color: "#f5a623", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+
+    const ro = new ResizeObserver(() => {
+      if (macdRef.current && macdChart.current) {
+        macdChart.current.applyOptions({ width: macdRef.current.clientWidth });
+      }
+    });
+    ro.observe(macdRef.current);
+
+    return () => {
+      ro.disconnect();
+      macdChart.current?.remove();
+      macdChart.current = null;
+      macdHistRef.current = null;
+      macdLineRef.current = null;
+      macdSigRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMacd]);
 
   // ── Timestamp parser — handles both ISO with/without timezone ───────────
   const parseTs = (ts) => {
@@ -168,6 +195,35 @@ export default function PriceChart({ symbol = "BTCUSDT", interval = "15m", liveP
   const dedup = arr => {
     const seen = new Set();
     return arr.filter(d => { if (seen.has(d.time)) return false; seen.add(d.time); return true; });
+  };
+
+  // Cached indicator payload — lets a recreated sub-chart be refilled on toggle
+  const indDataRef = useRef(null);
+
+  // ── Push indicator series into whichever charts currently exist ───────────
+  const applyIndicators = (ind) => {
+    if (!ind || !ind.times) return;
+    const t = ind.times;
+    const asc = a => a.sort((x, y) => x.time - y.time);
+
+    emaFastRef.current?.setData(dedup(asc(toSeries(t, ind.ema_fast))));
+    emaSlowRef.current?.setData(dedup(asc(toSeries(t, ind.ema_slow))));
+    bbUpperRef.current?.setData(dedup(asc(toSeries(t, ind.bb_upper))));
+    bbMidRef.current?.setData(dedup(asc(toSeries(t, ind.bb_middle))));
+    bbLowerRef.current?.setData(dedup(asc(toSeries(t, ind.bb_lower))));
+
+    rsiSerRef.current?.setData(dedup(asc(toSeries(t, ind.rsi))));
+
+    macdHistRef.current?.setData(
+      dedup(asc(toSeries(t, ind.macd_hist)).map(d => ({
+        ...d, color: d.value >= 0 ? "#26a69a" : "#ef5350",
+      })))
+    );
+    macdLineRef.current?.setData(dedup(asc(toSeries(t, ind.macd))));
+    macdSigRef.current?.setData(dedup(asc(toSeries(t, ind.macd_signal))));
+
+    rsiChart.current?.timeScale().fitContent();
+    macdChart.current?.timeScale().fitContent();
   };
 
   // ── Load candles + indicators when symbol/interval changes ────────────────
@@ -199,36 +255,18 @@ export default function PriceChart({ symbol = "BTCUSDT", interval = "15m", liveP
         candleRef.current?.setData(cData);
         mainChart.current?.timeScale().fitContent();
 
-        // Indicator overlays
-        if (ind && ind.times) {
-          const t = ind.times;
-          emaFastRef.current?.setData(dedup(toSeries(t, ind.ema_fast).sort((a,b)=>a.time-b.time)));
-          emaSlowRef.current?.setData(dedup(toSeries(t, ind.ema_slow).sort((a,b)=>a.time-b.time)));
-          bbUpperRef.current?.setData(dedup(toSeries(t, ind.bb_upper).sort((a,b)=>a.time-b.time)));
-          bbMidRef.current?.setData(dedup(toSeries(t, ind.bb_middle).sort((a,b)=>a.time-b.time)));
-          bbLowerRef.current?.setData(dedup(toSeries(t, ind.bb_lower).sort((a,b)=>a.time-b.time)));
-
-          rsiSerRef.current?.setData(
-            dedup(toSeries(t, ind.rsi).sort((a,b)=>a.time-b.time))
-          );
-
-          macdHistRef.current?.setData(
-            dedup(
-              toSeries(t, ind.macd_hist)
-                .map(d => ({ ...d, color: d.value >= 0 ? "#26a69a" : "#ef5350" }))
-                .sort((a,b)=>a.time-b.time)
-            )
-          );
-          macdLineRef.current?.setData(dedup(toSeries(t, ind.macd).sort((a,b)=>a.time-b.time)));
-          macdSigRef.current?.setData(dedup(toSeries(t, ind.macd_signal).sort((a,b)=>a.time-b.time)));
-
-          rsiChart.current?.timeScale().fitContent();
-          macdChart.current?.timeScale().fitContent();
-        }
+        // Keep indicator payload so recreated sub-charts can be repopulated
+        indDataRef.current = ind;
+        applyIndicators(ind);
       })
       .catch(() => setError("Could not load chart data"))
       .finally(() => setLoading(false));
   }, [symbol, interval]);
+
+  // ── Repopulate sub-charts after a toggle recreates them ───────────────────
+  useEffect(() => {
+    applyIndicators(indDataRef.current);
+  }, [showRsi, showMacd]);
 
   // ── Live price tick ────────────────────────────────────────────────────────
   useEffect(() => {

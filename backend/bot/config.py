@@ -91,8 +91,9 @@ CRYPTO_PAIRS = [
 # Forex Pairs (Binance supports these as crypto-collateralized)
 FOREX_PAIRS = [
     "EURUSDT",  "GBPUSDT",  "JPYUSDT",
-    "AUDUSTDT", "CADUSTDT", "CHFUSDT",
+    "AUDUSDT",  "CADUSDT",  "CHFUSDT",
 ]
+
 
 # All supported pairs combined
 SUPPORTED_PAIRS = CRYPTO_PAIRS + FOREX_PAIRS

@@ -47,7 +47,9 @@ export default function Navbar({ connected, botRunning }) {
           <div className="navbar-status">
             <div className={`ws-indicator ${connected ? "ws-on" : "ws-off"}`}>
               {connected ? <Wifi size={13} /> : <WifiOff size={13} />}
-              <span className="status-text">{connected ? "Live" : "Offline"}</span>
+              {/* "Connected", not "Live" — in a trading app "Live" reads as
+                  real-money trading, but this is only the WebSocket feed. */}
+              <span className="status-text">{connected ? "Connected" : "Offline"}</span>
             </div>
             <div className={`bot-badge ${botRunning ? "running" : "stopped"}`}>
               {botRunning ? "● BOT ON" : "○ BOT OFF"}

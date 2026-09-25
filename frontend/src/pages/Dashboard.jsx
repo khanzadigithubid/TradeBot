@@ -64,6 +64,7 @@ export default function Dashboard({ wsMessage }) {
   const [allPairs,    setAllPairs]    = useState({ crypto: PAIRS, forex: [] });
   const [wlPrices,    setWlPrices]    = useState({});
   const [wlOpen,      setWlOpen]      = useState(false);  // mobile watchlist drawer
+  const [safety,      setSafety]      = useState(null);   // { effective_testnet, safety }
 
   // ── Fetch main data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -84,6 +85,11 @@ export default function Dashboard({ wsMessage }) {
       setAllPairs({
         crypto: d.crypto_pairs || d.supported_pairs || PAIRS,
         forex:  d.forex_pairs  || [],
+      });
+      setSafety({
+        effective_testnet: d.effective_testnet ?? d.testnet ?? true,
+        live_allowed:      d.safety?.live_allowed ?? false,
+        requested_live:    d.testnet === false,
       });
     }
   }, [symbol]);
@@ -253,8 +259,10 @@ export default function Dashboard({ wsMessage }) {
         {/* Stats row */}
         <div className="dash-stats-row">
           <StatCard icon={Wallet}     title="Balance"
-            value={stats ? `$${Number(stats.usdt_balance||0).toFixed(2)}` : "—"}
-            sub="USDT" color="blue" />
+            value={!stats ? "—"
+              : stats.balance_ok === false ? "Unavailable"
+              : `$${Number(stats.usdt_balance||0).toFixed(2)}`}
+            sub={stats?.balance_ok === false ? "check API key" : "USDT"} color="blue" />
           <StatCard icon={TrendingUp} title="Total P&L"
             value={stats ? `${pnlPos?"+":""}$${Number(stats.total_pnl||0).toFixed(2)}` : "—"}
             sub={`${stats?.total_trades||0} trades`} color={pnlPos?"green":"red"} />
@@ -292,7 +300,13 @@ export default function Dashboard({ wsMessage }) {
                 <OpenTradeCard
                   key={trade.id}
                   trade={trade}
-                  currentPrice={livePrice}
+                  // Each trade must be valued at its OWN symbol's price.
+                  // Passing the selected symbol's livePrice made every other
+                  // position show a fabricated P&L.
+                  currentPrice={
+                    wlPrices?.[trade.symbol]?.price
+                    ?? (trade.symbol === symbol ? livePrice : null)
+                  }
                   onClose={fetchAll}
                 />
               ))}
@@ -308,6 +322,22 @@ export default function Dashboard({ wsMessage }) {
           <Zap size={13} fill="currentColor" />
           {botRunning ? "Bot Running" : "Bot Stopped"}
         </div>
+
+        {/* Trading-mode banner — the bot may be configured for live but blocked */}
+        {safety && !safety.effective_testnet ? (
+          <div className="safety-banner safety-live" title="Real funds are at risk">
+            🔴 LIVE MODE — real orders
+          </div>
+        ) : safety?.requested_live && !safety.live_allowed ? (
+          <div className="safety-banner safety-blocked"
+               title="The server refused live trading because LIVE_TRADING_ENABLED is not set">
+            🟡 Live blocked — running on testnet
+          </div>
+        ) : safety ? (
+          <div className="safety-banner safety-testnet" title="Simulated trading">
+            🟢 Testnet
+          </div>
+        ) : null}
 
         {signal ? (
           <>
