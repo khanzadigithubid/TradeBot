@@ -2325,32 +2325,65 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
   .wl-remove { opacity: 1; }
 }
 
+/* VIEW tag: inline beside the ticker so it cannot land on the 24h change. */
+.wl-pair-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
 .wl-viewonly {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  padding: 1px 5px;
-  border-radius: 4px;
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border-radius: 3px;
   background: var(--bg3);
   border: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  pointer-events: none;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
 }
-.wl-wrap:hover .wl-viewonly { opacity: 0; }
 
-.wl-add {
+/* ── Add-a-pair search ── */
+.wl-add-toggle {
+  margin-left: auto;
   display: flex;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+.wl-add-toggle:hover          { color: var(--blue); border-color: var(--blue); }
+.wl-add-toggle-on             { color: var(--blue); border-color: var(--blue); }
+
+.wl-search {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
-.wl-add-input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
+
+.wl-search-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.wl-search-icon {
+  position: absolute;
+  left: 7px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.wl-search-input {
+  width: 100%;
+  padding: 5px 26px 5px 25px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -2358,26 +2391,82 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
   font-size: 11px;
   font-family: inherit;
 }
-.wl-add-input::placeholder { color: var(--text-dim); }
-.wl-add-input:focus {
-  outline: none;
-  border-color: var(--blue);
-}
-.wl-add-btn {
-  flex-shrink: 0;
-  width: 26px;
+.wl-search-input::placeholder { color: var(--text-dim); }
+.wl-search-input:focus        { outline: none; border-color: var(--blue); }
+
+.wl-search-close {
+  position: absolute;
+  right: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
   padding: 0;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
+  background: none;
+  border: none;
+  color: var(--text-dim);
   cursor: pointer;
 }
-.wl-add-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
-.wl-add-btn:disabled         { opacity: 0.4; cursor: not-allowed; }
+.wl-search-close:hover { color: var(--text); }
+
+.wl-search-spin {
+  position: absolute;
+  right: 7px;
+  color: var(--text-dim);
+  animation: wl-spin 0.9s linear infinite;
+}
+@keyframes wl-spin { to { transform: rotate(360deg); } }
+
+.wl-results {
+  margin-top: 5px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg2);
+}
+
+.wl-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.wl-result:last-child  { border-bottom: none; }
+.wl-result:hover        { background: var(--bg-hover); }
+.wl-result-sel         { background: var(--bg-input); }
+
+.wl-result-sym {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.wl-result-price {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.wl-result-change {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.wl-result-empty {
+  padding: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: center;
+}
 
 .wl-add-error {
   padding: 5px 10px;

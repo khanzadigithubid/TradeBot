@@ -402,6 +402,99 @@ def get_24h_stats(symbol: str) -> dict:
     return {"symbol": sym, "lastPrice": "0", "priceChangePercent": "0", "volume": "0"}
 
 
+def search_symbols(query: str, quote: str = "USDT", limit: int = 25) -> list:
+    """
+    Symbols the exchange actually lists, matching a free-text query.
+
+    The watchlist add box searches this instead of accepting raw text: it is
+    what makes a typo impossible rather than merely reported. Results carry
+    live 24h price and change so the dropdown can show them before the pair is
+    added.
+
+    Matching is on the base asset, so "pe" finds PEPE, and "pepe" finds it
+    ahead of unrelated pairs. The forex pairs are folded in because they are
+    not on the Binance exchangeInfo feed.
+    """
+    q = (query or "").strip().upper()
+    if len(q) < 2:
+        return []
+
+    out, seen = [], set()
+
+    for sym in FOREX_SYMBOLS:
+        base = FOREX_SYMBOLS[sym]
+        if q in base or q in sym:
+            out.append({"symbol": sym, "price": None, "change": None, "source": "forex"})
+            seen.add(sym)
+
+    for sym in _listed_usdt_symbols():
+        if sym in seen:
+            continue
+        base = sym[:-len(quote)]
+        if q not in base and q not in sym:
+            continue
+        out.append({"symbol": sym, "price": None, "change": None, "source": "binance"})
+        seen.add(sym)
+        if len(out) >= limit * 2:
+            break
+
+    # Prices come last, and only for the rows actually returned, so this stays
+    # a handful of ticker calls rather than the whole market.
+    for row in out[:limit * 2]:
+        try:
+            stats = get_24h_stats(row["symbol"])
+            row["price"]  = float(stats.get("lastPrice", 0) or 0) or None
+            row["change"] = float(stats.get("priceChangePercent", 0) or 0)
+        except Exception:
+            pass
+
+    # "BTC" has to mean BTCUSDT, not WBTCUSDT. Exact base first, then prefix
+    # matches, then anything else that merely contains the query.
+    def rank(row):
+        sym = row["symbol"]
+        base = sym[:-len(quote)] if sym.endswith(quote) else sym
+        if base == q:
+            return (0, base)
+        if base.startswith(q):
+            return (1, base)
+        return (2, base)
+
+    out.sort(key=rank)
+    return out[:limit]
+
+
+_LISTED_CACHE: dict = {"at": 0.0, "symbols": ()}
+_LISTED_TTL = 600.0
+
+
+def _listed_usdt_symbols() -> tuple:
+    """
+    USDT spot symbols currently in TRADING status, cached briefly.
+
+    exchangeInfo is a large payload and the tradable set changes slowly, so it
+    is refetched at most every _LISTED_TTL seconds. A failure returns the last
+    good list rather than an empty one, which would break the dropdown.
+    """
+    import time as _time
+    now = _time.time()
+    if now - _LISTED_CACHE["at"] < _LISTED_TTL and _LISTED_CACHE["symbols"]:
+        return _LISTED_CACHE["symbols"]
+
+    try:
+        data = _try_binance("exchangeInfo", {"permissions": "SPOT"})
+        syms = tuple(sorted({
+            s["symbol"] for s in data.get("symbols", [])
+            if s.get("status") == "TRADING" and s.get("quoteAsset") == "USDT"
+        }))
+        if syms:
+            _LISTED_CACHE.update(at=now, symbols=syms)
+            return syms
+    except Exception:
+        pass
+
+    return _LISTED_CACHE["symbols"]
+
+
 def get_klines(symbol: str, interval: str = "15m", limit: int = 200) -> pd.DataFrame:
     sym = symbol.upper()
 

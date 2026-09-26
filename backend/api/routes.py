@@ -455,6 +455,27 @@ def remove_from_watchlist(symbol: str):
 
 # ─── Market Data ───────────────────────────────────────────────────────────────
 
+@router.get("/market/symbols")
+def search_market_symbols(q: str = "", limit: int = 25):
+    """
+    Type-ahead search over the symbols the exchange actually lists.
+
+    Backs the watchlist add box. Searching the live venue rather than
+    accepting free text is what makes an invalid pair impossible to add
+    instead of merely reported afterwards.
+    """
+    from bot.market_data import search_symbols
+    q = q.strip().upper()
+    if len(q) < 2:
+        return {"query": q, "results": []}
+    if len(q) > _SYMBOL_MAX_LEN:
+        return {"query": q, "results": []}
+
+    results = search_symbols(q, limit=max(1, min(int(limit), 50)))
+    for r in results:
+        r["tradeable"] = _tradeable(r["symbol"])
+    return {"query": q, "results": results}
+
 @router.get("/market/prices")
 def get_bulk_prices(symbols: str = "BTCUSDT,ETHUSDT,BNBUSDT"):
     """

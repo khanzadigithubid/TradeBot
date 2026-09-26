@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   Wallet, TrendingUp, Target, BarChart2, Activity,
   Play, Square, AlertTriangle, TrendingDown, Clock,
-  Zap, SlidersHorizontal, X
+  Zap, SlidersHorizontal, X, Plus
 } from "lucide-react";
 import {
   getBotStatus, startBot, stopBot,
@@ -15,6 +15,7 @@ import SignalBadge      from "../components/SignalBadge";
 import OpenTradeCard    from "../components/OpenTradeCard";
 import PriceChart       from "../components/PriceChart";
 import ManualTradePanel from "../components/ManualTradePanel";
+import WatchlistAdd     from "../components/WatchlistAdd";
 
 const PAIRS     = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT"];
 const INTERVALS = ["1m","5m","15m","30m","1h","4h","1d"];
@@ -30,11 +31,20 @@ function WatchlistItem({ pair, active, onClick, priceData, tradeable, onRemove }
       <button className="wl-item" onClick={onClick} title={
         tradeable
           ? `Trade ${pair}`
-          : `${pair} is monitored only — this bot is not configured to trade it`
+          : `${pair} is monitored for price only — this bot is not configured to trade it`
       }>
         <div className="wl-left">
-          <span className="wl-pair">
-            {pair.replace("USDT", "")}<span className="wl-usdt">/USDT</span>
+          {/* The VIEW tag sits inline beside the ticker. Absolutely positioning
+              it put it on top of the 24h change in the right-hand column. */}
+          <span className="wl-pair-row">
+            <span className="wl-pair">
+              {pair.replace("USDT", "")}<span className="wl-usdt">/USDT</span>
+            </span>
+            {!tradeable && (
+              <span className="wl-viewonly" title="Price monitoring only — not tradeable by this bot">
+                VIEW
+              </span>
+            )}
           </span>
           {price > 0 && (
             <span className="wl-price">
@@ -53,11 +63,6 @@ function WatchlistItem({ pair, active, onClick, priceData, tradeable, onRemove }
           )}
         </div>
       </button>
-      {!tradeable && (
-        <span className="wl-viewonly" title="Price monitoring only — not tradeable by this bot">
-          VIEW
-        </span>
-      )}
       <button className="wl-remove" onClick={onRemove} title={`Remove ${pair} from watchlist`}>
         <X size={11} />
       </button>
@@ -81,9 +86,7 @@ export default function Dashboard({ wsMessage }) {
   const [wlPrices,    setWlPrices]    = useState({});
   const [wlOpen,      setWlOpen]      = useState(false);  // mobile watchlist drawer
   const [safety,      setSafety]      = useState(null);   // { effective_testnet, safety }
-  const [newPair,     setNewPair]     = useState("");
-  const [addError,    setAddError]    = useState("");
-  const [adding,      setAdding]      = useState(false);
+  const [adding,      setAdding]      = useState(false);  // sidebar add panel open
 
   // ── Fetch main data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -178,31 +181,17 @@ export default function Dashboard({ wsMessage }) {
     setSignal(null);
   }
 
-  async function handleAddPair(e) {
-    e.preventDefault();
-    const value = newPair.trim().toUpperCase();
-    if (!value || adding) return;
-
-    setAdding(true);
-    setAddError("");
-    try {
-      await addWatchlist(value);
-      setNewPair("");
-      await fetchWatchlist();
-    } catch (err) {
-      setAddError(err.message || "Could not add that pair");
-    } finally {
-      setAdding(false);
-    }
+  async function handleAddPair(sym) {
+    await addWatchlist(sym);
+    await fetchWatchlist();
   }
 
   async function handleRemovePair(sym) {
-    setAddError("");
     try {
       await removeWatchlist(sym);
       await fetchWatchlist();
     } catch (err) {
-      setAddError(err.message || "Could not remove that pair");
+      alert(err.message || "Could not remove that pair");
     }
   }
 
@@ -221,22 +210,20 @@ export default function Dashboard({ wsMessage }) {
         <div className="sidebar-header">
           <BarChart2 size={13} />
           <span>Watchlist</span>
+          <button
+            className={`wl-add-toggle ${adding ? "wl-add-toggle-on" : ""}`}
+            onClick={() => setAdding(v => !v)}
+            title={adding ? "Close add panel" : "Add a pair"}
+            aria-label={adding ? "Close add panel" : "Add a pair"}
+            aria-expanded={adding}
+          >
+            {adding ? <X size={13} /> : <Plus size={13} />}
+          </button>
         </div>
 
-        <form className="wl-add" onSubmit={handleAddPair}>
-          <input
-            className="wl-add-input"
-            value={newPair}
-            onChange={e => { setNewPair(e.target.value); setAddError(""); }}
-            placeholder="Add pair, e.g. AVAXUSDT"
-            maxLength={20}
-            aria-label="Add a pair to the watchlist"
-          />
-          <button className="wl-add-btn" type="submit" disabled={adding || !newPair.trim()}>
-            {adding ? "…" : "+"}
-          </button>
-        </form>
-        {addError && <div className="wl-add-error">{addError}</div>}
+        {adding && (
+          <WatchlistAdd onAdd={handleAddPair} onClose={() => setAdding(false)} />
+        )}
 
         <div className="wl-list">
           {watchlist.map(p => (
@@ -265,20 +252,7 @@ export default function Dashboard({ wsMessage }) {
               </button>
             </div>
 
-            <form className="wl-add" onSubmit={handleAddPair}>
-              <input
-                className="wl-add-input"
-                value={newPair}
-                onChange={e => { setNewPair(e.target.value); setAddError(""); }}
-                placeholder="Add pair, e.g. AVAXUSDT"
-                maxLength={20}
-                aria-label="Add a pair to the watchlist"
-              />
-              <button className="wl-add-btn" type="submit" disabled={adding || !newPair.trim()}>
-                {adding ? "…" : "+"}
-              </button>
-            </form>
-            {addError && <div className="wl-add-error">{addError}</div>}
+            <WatchlistAdd onAdd={handleAddPair} />
 
             <div className="wl-list">
               {watchlist.map(p => (
@@ -349,9 +323,7 @@ export default function Dashboard({ wsMessage }) {
                 ? <span className="spinner" />
                 : botRunning
                   ? <><Square size={12} fill="currentColor" /> Stop</>
-                  : selectedIsTradeable
-                    ? <><Play size={12} fill="currentColor" /> Start Bot</>
-                    : <><AlertTriangle size={12} /> View only</>
+                  : <><Play   size={12} fill="currentColor" /> Start Bot</>
               }
             </button>
           </div>

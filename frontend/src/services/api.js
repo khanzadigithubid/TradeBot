@@ -82,6 +82,9 @@ export const getWatchlist    = ()      => request("/watchlist");
 export const addWatchlist    = (symbol) => request("/watchlist", { method: "POST", body: JSON.stringify({ symbol }) });
 export const removeWatchlist = (symbol) => request(`/watchlist/${symbol}`, { method: "DELETE" });
 
+// ── Market ─────────────────────────────────────────────────────────────────────
+export const searchSymbols   = (q)     => request(`/market/symbols?q=${encodeURIComponent(q)}`);
+
 
 // ── Trades ────────────────────────────────────────────────────────────────────
 export const getOpenTrades   = ()         => request("/trades/open");
