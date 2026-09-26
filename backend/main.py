@@ -5,7 +5,7 @@ AI Trading Bot - Backend Server
 Auto-start: Bot server start hote hi apne aap trading shuru kar deta hai.
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
@@ -19,9 +19,9 @@ if _backend_dir not in sys.path:
 
 from api.routes    import router
 from api.websocket import manager
-from api.auth      import auth_enabled, auth_middleware
+from api.auth      import control_access_mode, control_access_detail, auth_middleware
 from bot.engine    import engine
-from bot.safety    import describe_mode
+from bot.safety    import describe_mode, should_auto_start
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -187,7 +187,13 @@ async def startup_event():
     # ── SAFETY BANNER ─────────────────────────────────────────────────────────
     mode = describe_mode(engine.config.get("TESTNET", True))
     if mode["testnet"]:
-        logger.info("🟡 MODE: TESTNET — simulated orders, no real funds at risk")
+        # Testnet orders are real orders on Binance's testnet venue. Calling them
+        # "simulated" here is what made the banner misleading to whoever read
+        # it and assumed paper mode.
+        logger.info(
+            "🟡 MODE: TESTNET — real orders on Binance's testnet venue, "
+            "no real funds at risk"
+        )
     elif mode["live_allowed"]:
         logger.warning("🔴 MODE: LIVE — real Binance orders will be sent")
     else:
@@ -196,20 +202,29 @@ async def startup_event():
             "Forcing testnet."
         )
 
-    if auth_enabled():
-        logger.info("🔐 API auth: ENABLED (X-API-Secret required for control endpoints)")
+    access = control_access_mode()
+    if access == "open":
+        logger.warning("⚠️  " + control_access_detail())
+    elif access == "denied":
+        logger.warning("🔒 " + control_access_detail())
     else:
-        logger.warning(
-            "⚠️  API auth: DISABLED — /api/bot/*, /api/settings and /api/trades/manual "
-            "are open to anyone. Set API_SECRET to protect them."
-        )
+        logger.info("🔐 " + control_access_detail())
 
     # ── AUTO-START BOT ──────────────────────────────────────────────────────────
-    try:
-        logger.info("🤖 Auto-starting trading bot...")
-        asyncio.create_task(engine.start())
-    except Exception as e:
-        logger.error(f"Bot auto-start failed (server still running): {e}")
+    # Opt-in. It used to fire on every boot, so each deploy or restart silently
+    # resumed trading, and on a host where the control endpoints are reachable
+    # by anyone, so could the bot be stopped or started too.
+    auto_start, auto_start_reason = should_auto_start(
+        engine.config.get("TESTNET", True)
+    )
+    if not auto_start:
+        logger.info(f"Bot not auto-started — {auto_start_reason}")
+    else:
+        try:
+            logger.info(f"🤖 Auto-starting trading bot — {auto_start_reason}")
+            asyncio.create_task(engine.start())
+        except Exception as e:
+            logger.error(f"Bot auto-start failed (server still running): {e}")
 
     # ── DAILY SUMMARY ───────────────────────────────────────────────────────────
     try:
@@ -231,6 +246,10 @@ async def shutdown_event():
 
 
 # ─── Health ────────────────────────────────────────────────────────────────────
+# HEAD is registered alongside GET because FastAPI's @app.get does not add it
+# (Starlette's plain Route does). Render's health check issues HEAD, and a 405
+# there is read as an unhealthy service.
+
 
 @app.get("/")
 def root():
@@ -243,12 +262,34 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "bot_running": engine.running}
+    """
+    Liveness plus the two things an operator actually needs to know: can this
+    host reach Binance at all, and are the control endpoints open.
+    """
+    exchange = engine.client.exchange_health
+    return {
+        "status":        "degraded" if not exchange["reachable"] else "healthy",
+        "bot_running":   engine.running,
+        "exchange_ok":   exchange["reachable"],
+        "exchange_error": exchange["reason"],
+        "control_access": control_access_mode(),
+    }
 
 @app.get("/ping")
 def ping():
     """Keep-alive endpoint — prevents Render free tier from sleeping"""
     return {"pong": True}
+
+
+# Render's health check issues HEAD, and FastAPI's @app.get does not add it
+# (Starlette's plain Route does), so a HEAD check got 405. Registered apart
+# from the GET routes to keep the OpenAPI operation IDs unique.
+@app.head("/", include_in_schema=False)
+@app.head("/health", include_in_schema=False)
+@app.head("/ping", include_in_schema=False)
+def head_probe():
+    """Answers Render's HEAD liveness check."""
+    return Response(status_code=200)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,56 @@ logger = logging.getLogger(__name__)
 # (or a slow request) will blow through.
 RECV_WINDOW_MS = 60_000
 
+# Binance's geo-block comes back as HTTP 451/403 with a `msg` that names the
+# terms page. It is not an auth problem and not a bad key, so it needs its own
+# reason code: from a datacenter IP range the key is fine and no amount of
+# retrying will fix it, and the operator needs to be told to move hosts.
+_GEO_MARKERS = (
+    "restricted location",
+    "service unavailable from a restricted",
+    "eligibility",
+)
+
+
+def classify_binance_error(detail: str) -> str:
+    """
+    Turn a Binance error body into a stable reason code.
+
+    Without this every failure looked the same in the logs, which is why a
+    geo-blocked host was reported as "Balance read failed" over and over with
+    no hint that retrying was pointless.
+    """
+    text = (detail or "").lower()
+    if any(marker in text for marker in _GEO_MARKERS):
+        return "geo_restricted"
+    if '"code":-1021' in text or "-1021" in text:
+        return "clock_skew"
+    if "-2015" in text or "invalid api-key" in text or "invalid signature" in text:
+        return "auth_rejected"
+    if "-2014" in text:
+        return "bad_request"
+    if "rate" in text and "limit" in text or "-1003" in text or "429" in text:
+        return "rate_limited"
+    if "timed out" in text or "connection" in text or "resolve" in text:
+        return "network"
+    return "unknown"
+
+
+# Human-facing next step for each reason, surfaced in the UI.
+BINANCE_ERROR_HELP = {
+    "geo_restricted": (
+        "Binance is blocking this host's region, so the bot cannot read the "
+        "account or place orders. Public market data may still work. Run the "
+        "bot from a host in a region Binance serves, or use a Binance server "
+        "located close to you."
+    ),
+    "clock_skew": "The local clock drifted outside Binance's recvWindow.",
+    "auth_rejected": "Binance rejected the API key or signature.",
+    "rate_limited": "Binance rate limit reached.",
+    "network": "The exchange could not be reached from this host.",
+    "unknown": "The exchange returned an error.",
+}
+
 
 class BinanceClient:
     def __init__(self, api_key: str, secret_key: str, testnet: bool = True):
@@ -28,6 +78,17 @@ class BinanceClient:
         self.testnet = testnet
         self._info_cache: dict = {}
         self._clock_offset: Optional[int] = None
+        # Last known reachability of the exchange, so /api/status and /health
+        # can say "this host cannot trade" instead of showing a live-looking
+        # dashboard with a silently broken account connection.
+        self.exchange_health: dict = {
+            "reachable": True,
+            "reason": None,
+            "detail": None,
+            "help": None,
+            "since": None,
+        }
+        self._logged_reason: Optional[str] = None
 
         if testnet:
             self.base_url = "https://testnet.binance.vision/api"
@@ -108,6 +169,7 @@ class BinanceClient:
                 timeout=10
             )
             response.raise_for_status()
+            self._mark_reachable()
             return response.json()
         except Exception as e:
             # Keep Binance's own error code and message. str(e) on an HTTPError is
@@ -125,8 +187,40 @@ class BinanceClient:
                 self._clock_offset = None
                 return self._request(method, endpoint, unsigned, signed=True, _retry=False)
 
-            logger.error(f"{method} {endpoint} failed: {detail}")
+            self._mark_unreachable(method, endpoint, detail)
             return {"error": detail, "status": getattr(e, "response", None) and e.response.status_code}
+
+    def _mark_reachable(self) -> None:
+        if not self.exchange_health["reachable"]:
+            logger.info("Binance is reachable again")
+        self.exchange_health.update(
+            reachable=True, reason=None, detail=None, help=None, since=None
+        )
+        self._logged_reason = None
+
+    def _mark_unreachable(self, method: str, endpoint: str, detail: str) -> None:
+        """
+        Record why the exchange call failed and log it once per distinct
+        reason. A geo-blocked host fails on every cycle, and the old code
+        reprinted the same stack of errors each time, burying the one line
+        that mattered.
+        """
+        reason = classify_binance_error(detail)
+        first_time = reason != self._logged_reason
+        self.exchange_health.update(
+            reachable=False,
+            reason=reason,
+            detail=detail[:300],
+            help=BINANCE_ERROR_HELP.get(reason),
+            since=self.exchange_health["since"] or time.time(),
+        )
+        if first_time:
+            self._logged_reason = reason
+            logger.error(
+                f"Binance unusable from this host on {method} {endpoint} "
+                f"({reason}). {BINANCE_ERROR_HELP.get(reason, '')}"
+            )
+
 
     def _get(self, endpoint: str, params: dict = None, signed: bool = False) -> dict:
         """GET request"""

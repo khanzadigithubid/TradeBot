@@ -20,6 +20,13 @@ import WatchlistAdd     from "../components/WatchlistAdd";
 const PAIRS     = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT"];
 const INTERVALS = ["1m","5m","15m","30m","1h","4h","1d"];
 
+// The backend closes /api/settings with 503 and a message naming API_SECRET when
+// no secret is configured. That is a deliberate "read-only deployment" state,
+// not a failure, so the dashboard says so instead of looking broken.
+function _isAuthClosed(err) {
+  return typeof err?.message === "string" && err.message.includes("API_SECRET");
+}
+
 // ── Watchlist Item ─────────────────────────────────────────────────────────────
 function WatchlistItem({ pair, active, onClick, priceData, tradeable, onRemove }) {
   const price  = priceData?.price  ?? null;
@@ -85,7 +92,9 @@ export default function Dashboard({ wsMessage }) {
   const [tradeable,  setTradeable]  = useState(new Set(PAIRS));
   const [wlPrices,    setWlPrices]    = useState({});
   const [wlOpen,      setWlOpen]      = useState(false);  // mobile watchlist drawer
-  const [safety,      setSafety]      = useState(null);   // { effective_testnet, safety }
+  const [safety,      setSafety]      = useState(null);   // from /api/status
+  const [readOnly,    setReadOnly]    = useState(false);  // control endpoints closed
+  const [actionErr,   setActionErr]   = useState("");     // last control action error
   const [adding,      setAdding]      = useState(false);  // sidebar add panel open
 
   // ── Fetch main data ──────────────────────────────────────────────────────────
@@ -94,7 +103,23 @@ export default function Dashboard({ wsMessage }) {
       getBotStatus(), getTradeStats(), getOpenTrades(),
       getSignal(symbol), getMarketStats(symbol), getSettings(),
     ]);
-    if (s.status    === "fulfilled") setBotRunning(s.value.running);
+    if (s.status    === "fulfilled") {
+      setBotRunning(s.value.running);
+      // Safety facts come from /api/status, not /api/settings. The settings
+      // endpoint is closed when no API_SECRET is set, and that is exactly the
+      // deployment where the operator most needs to see the mode banner — it
+      // used to disappear along with the settings response.
+      const d = s.value;
+      const liveAllowed = d.safety?.live_allowed ?? false;
+      setSafety({
+        // What the bot will actually trade with: testnet unless live is allowed.
+        effective_testnet: (d.safety?.testnet ?? true) || !liveAllowed,
+        live_allowed:      liveAllowed,
+        requested_live:    d.safety?.testnet === false,
+        exchange:          d.exchange ?? null,
+        control_access:    d.control_access ?? null,
+      });
+    }
     if (st.status   === "fulfilled") setStats(st.value);
     if (tr.status   === "fulfilled") setOpenTrades(tr.value);
     if (sig.status  === "fulfilled") {
@@ -102,13 +127,8 @@ export default function Dashboard({ wsMessage }) {
       setLivePrice(sig.value?.price ?? null);
     }
     if (mkt.status  === "fulfilled") setMarketStats(mkt.value);
-    if (sets.status === "fulfilled") {
-      const d = sets.value;
-      setSafety({
-        effective_testnet: d.effective_testnet ?? d.testnet ?? true,
-        live_allowed:      d.safety?.live_allowed ?? false,
-        requested_live:    d.testnet === false,
-      });
+    if (sets.status === "rejected" && _isAuthClosed(sets.reason)) {
+      setReadOnly(true);
     }
   }, [symbol]);
 
@@ -168,10 +188,16 @@ export default function Dashboard({ wsMessage }) {
   // ── Handlers ────────────────────────────────────────────────────────────────
   async function handleToggle() {
     setBtnLoading(true);
+    setActionErr("");
     try {
       if (botRunning) { await stopBot(); setBotRunning(false); }
       else { await startBot({ symbol, interval: timeframe }); setBotRunning(true); }
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      // Shown inline rather than via alert(): a closed-control 503 carries the
+      // remediation text, and a modal dialog for it is not reviewable.
+      if (_isAuthClosed(e)) setReadOnly(true);
+      setActionErr(e.message);
+    }
     setBtnLoading(false);
   }
 
@@ -395,6 +421,36 @@ export default function Dashboard({ wsMessage }) {
           <Zap size={13} fill="currentColor" />
           {botRunning ? "Bot Running" : "Bot Stopped"}
         </div>
+
+        {actionErr && (
+          <div className="safety-banner safety-actionerr" title={actionErr}>
+            ⚠️ {actionErr}
+          </div>
+        )}
+
+        {/* The host cannot reach the exchange account, so nothing can be
+            traded no matter how healthy the charts look. */}
+        {safety?.exchange && safety.exchange.reachable === false && (
+          <div className="safety-banner safety-degraded"
+               title={safety.exchange.help || "Binance is not usable from this host"}>
+            🔌 Cannot reach Binance ({safety.exchange.reason}) — trading is disabled
+            <span className="safety-banner-note">
+              {safety.exchange.help || "Public market data may still be shown, but no orders can be placed."}
+            </span>
+          </div>
+        )}
+
+        {/* Control endpoints closed: the dashboard is monitoring-only */}
+        {(readOnly || safety?.control_access === "denied") && (
+          <div className="safety-banner safety-readonly"
+               title="API_SECRET is not set on the server, so the endpoints that start/stop the bot and change settings return 503">
+            🔒 Read-only — control endpoints are closed
+            <span className="safety-banner-note">
+              Set API_SECRET on the server and VITE_API_SECRET in the frontend to re-enable
+              Start Bot, Settings and manual trades.
+            </span>
+          </div>
+        )}
 
         {/* Trading-mode banner — the bot may be configured for live but blocked */}
         {safety && !safety.effective_testnet ? (

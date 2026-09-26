@@ -179,7 +179,10 @@ class PriceStream:
                     )
                     self._active.discard(symbol)
                     break
-                logger.warning(f"[PriceStream] {symbol} disconnected: {e} — retry in {backoff}s")
+                # A bare ConnectionClosed has an empty str(), which is why the
+                # log read "disconnected:  — retry in 1s" and said nothing.
+                reason = str(e).strip() or type(e).__name__
+                logger.warning(f"[PriceStream] {symbol} disconnected: {reason} — retry in {backoff}s")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 60)
 

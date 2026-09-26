@@ -23,6 +23,9 @@ os.environ.setdefault("TESTNET", "true")
 os.environ["PAPER_TRADING"] = "true"
 os.environ.pop("LIVE_TRADING_ENABLED", None)
 os.environ.pop("API_SECRET", None)
+# The control endpoints are closed unless a secret is set. Tests exercise those
+# routes directly, so opt out the same way local development does.
+os.environ["ALLOW_UNAUTHENTICATED_CONTROL"] = "true"
 
 
 @pytest.fixture(autouse=True, scope="session")

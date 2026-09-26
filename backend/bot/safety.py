@@ -52,3 +52,29 @@ def describe_mode(testnet_flag: bool) -> dict:
         "live_opt_in":   live_opt_in(),
         "live_allowed":  bool(testnet_flag) or live_opt_in(),
     }
+
+
+def auto_start_opt_in() -> bool:
+    """
+    Whether the server may resume trading on boot. Off unless AUTO_START is
+    explicitly set, because the old unconditional auto-start meant every
+    deploy and every restart silently began trading again.
+    """
+    return os.getenv("AUTO_START", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def should_auto_start(testnet_flag: bool) -> tuple[bool, str]:
+    """
+    Resolve the auto-start decision, with the reason.
+
+    Live mode is never auto-started no matter what AUTO_START says: arming real
+    money has to be a deliberate act, not a side effect of a deploy.
+    """
+    if not auto_start_opt_in():
+        return False, "AUTO_START is not set; start the bot from the UI or API."
+    if not testnet_flag:
+        return False, (
+            "Stored config is live mode, so the bot is not auto-started. Arm "
+            "real-money trading from the UI or API on purpose."
+        )
+    return True, "AUTO_START=true and mode is testnet."

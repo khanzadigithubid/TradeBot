@@ -30,6 +30,7 @@ from bot.sentiment        import get_combined_sentiment
 from bot.price_stream     import PriceStream
 from bot.strategy         import compute_signal, sentiment_blocks_buy
 from bot.safety           import assert_live_allowed, LiveTradingBlocked, describe_mode
+from api.auth             import control_access_mode
 from bot                  import config as cfg
 from bot.settings_store   import load_settings, save_settings
 from bot.market_data      import get_klines
@@ -379,7 +380,12 @@ class TradingEngine:
             # ── Broadcast state ────────────────────────────────────────────────
             live_balance = self.client.get_balance("USDT")
             if live_balance is None:
-                logger.warning(f"[{symbol}] Balance unreadable — reporting 0 in UI")
+                # The broadcast carries balance_ok:false and the UI renders
+                # "Unavailable" — it does not show a zero balance. Say so here
+                # too, because the old wording claimed the opposite.
+                logger.warning(
+                    f"[{symbol}] Balance unreadable — reporting 'Unavailable' in the UI"
+                )
             await self.broadcast({
                 "type":        "SIGNAL_UPDATE",
                 "symbol":      symbol,
@@ -552,6 +558,8 @@ class TradingEngine:
             "stats":          self.trade_manager.get_stats(),
             "open_trades":    self.trade_manager.get_open_trades(),
             "safety":         describe_mode(self.config.get("TESTNET", True)),
+            "exchange":       self.client.exchange_health,
+            "control_access": control_access_mode(),
             "price_stream": {
                 "url":       self.price_stream.base,
                 "healthy":   {s: self.price_stream.is_healthy(s) for s in symbols},

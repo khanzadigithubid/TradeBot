@@ -18,7 +18,6 @@ def client(monkeypatch):
     monkeypatch.delenv("API_SECRET", raising=False)
 
     import api.auth as auth
-    auth._api_secret_cache = None
 
     import main
     main.app.router.on_startup = []      # do not start the trading engine
@@ -178,18 +177,24 @@ def test_close_trade_blocked_in_live_mode(client, monkeypatch):
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
-def test_auth_disabled_by_default(client, monkeypatch):
+def test_auth_is_closed_by_default_without_a_secret(client, monkeypatch):
+    """
+    Was "disabled by default", i.e. an unset API_SECRET left every control
+    endpoint open to anyone who could reach the host. It now closes them
+    instead; see test_deployment_hardening.py for the full matrix. The suite
+    opts out via ALLOW_UNAUTHENTICATED_CONTROL in conftest, which is why the
+    read still succeeds here.
+    """
     import api.auth as auth
     monkeypatch.delenv("API_SECRET", raising=False)
-    auth._api_secret_cache = None
     assert auth.auth_enabled() is False
+    assert auth.control_access_mode() in ("denied", "open")
     assert client.get("/api/settings").status_code == 200
 
 
 def test_auth_blocks_protected_paths_without_secret(client, monkeypatch):
     import api.auth as auth
     monkeypatch.setenv("API_SECRET", "s3cr3t-value")
-    auth._api_secret_cache = None
     assert auth.auth_enabled() is True
 
     r = client.get("/api/settings")
@@ -205,7 +210,6 @@ def test_auth_blocks_protected_paths_without_secret(client, monkeypatch):
 def test_auth_leaves_public_paths_open(client, monkeypatch):
     import api.auth as auth
     monkeypatch.setenv("API_SECRET", "s3cr3t-value")
-    auth._api_secret_cache = None
     for path in ("/api/status", "/docs", "/openapi.json"):
         assert client.get(path).status_code == 200, f"{path} should stay public"
 
@@ -213,7 +217,6 @@ def test_auth_leaves_public_paths_open(client, monkeypatch):
 def test_auth_leaves_market_data_public(client, monkeypatch):
     import api.auth as auth
     monkeypatch.setenv("API_SECRET", "s3cr3t-value")
-    auth._api_secret_cache = None
     # charts must keep working without the secret
     r = client.get("/api/market/BTCUSDT/signal")
     assert r.status_code != 401
@@ -222,7 +225,6 @@ def test_auth_leaves_market_data_public(client, monkeypatch):
 def test_auth_protects_trade_endpoints(client, monkeypatch):
     import api.auth as auth
     monkeypatch.setenv("API_SECRET", "s3cr3t-value")
-    auth._api_secret_cache = None
 
     assert client.post("/api/trades/manual",
                        json={"symbol": "BTCUSDT", "side": "BUY"}).status_code == 401

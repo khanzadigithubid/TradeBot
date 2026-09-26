@@ -2034,6 +2034,42 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
   color: var(--green);
   border: 1px solid rgba(0,200,150,0.22);
 }
+/* Degraded and read-only banners carry a second line of explanation, so they
+   stack instead of sitting on one centred row like the mode banners. */
+.safety-degraded {
+  flex-direction: column;
+  gap: 3px;
+  background: rgba(255,149,0,0.12);
+  color: #ff9500;
+  border: 1px solid rgba(255,149,0,0.32);
+  text-align: center;
+}
+.safety-readonly {
+  flex-direction: column;
+  gap: 3px;
+  background: rgba(130,140,160,0.12);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.safety-actionerr {
+  flex-direction: column;
+  gap: 3px;
+  background: rgba(255,59,92,0.1);
+  color: var(--red);
+  border: 1px solid rgba(255,59,92,0.28);
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+}
+.safety-banner-note {
+  font-weight: 500;
+  font-size: 10px;
+  line-height: 1.45;
+  opacity: 0.85;
+  max-width: 46ch;
+}
 
 .rp-signal-top {
   text-align: center;
