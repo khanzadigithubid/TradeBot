@@ -15,6 +15,11 @@ from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
 
+# Binance rejects a signed request with -1021 when its timestamp falls outside
+# this window. The default is only 5000ms, which a few seconds of clock drift
+# (or a slow request) will blow through.
+RECV_WINDOW_MS = 60_000
+
 
 class BinanceClient:
     def __init__(self, api_key: str, secret_key: str, testnet: bool = True):
@@ -22,6 +27,7 @@ class BinanceClient:
         self.secret_key = secret_key
         self.testnet = testnet
         self._info_cache: dict = {}
+        self._clock_offset: Optional[int] = None
 
         if testnet:
             self.base_url = "https://testnet.binance.vision/api"
@@ -33,9 +39,38 @@ class BinanceClient:
             "Content-Type": "application/json"
         }
 
+    def _server_time_offset_ms(self) -> int:
+        """
+        Signed requests are rejected with -1021 when the local clock drifts
+        outside Binance's recvWindow. A machine only ~600ms slow is enough to
+        start losing orders intermittently, so the offset is measured once
+        against the exchange and applied to every signature.
+        """
+        if self._clock_offset is not None:
+            return self._clock_offset
+        try:
+            server = self._get("/v3/time")
+            if isinstance(server, dict) and "serverTime" in server:
+                self._clock_offset = int(server["serverTime"]) - int(time.time() * 1000)
+                if abs(self._clock_offset) > 500:
+                    logger.warning(
+                        f"Local clock is {self._clock_offset/1000:+.2f}s away from "
+                        f"Binance — correcting signed request timestamps"
+                    )
+            else:
+                # An error payload is not an exception, so the offset would
+                # otherwise stay None and break every later signature.
+                logger.debug(f"Unexpected /v3/time response: {str(server)[:120]}")
+                self._clock_offset = 0
+        except Exception as e:
+            logger.debug(f"Could not read Binance server time: {e}")
+            self._clock_offset = 0
+        return self._clock_offset
+
     def _sign(self, params: dict) -> dict:
         """Sign request with HMAC SHA256"""
-        params['timestamp'] = int(time.time() * 1000)
+        params["timestamp"]  = int(time.time() * 1000) + self._server_time_offset_ms()
+        params["recvWindow"] = RECV_WINDOW_MS
         query_string = urlencode(params)
         signature = hmac.new(
             self.secret_key.encode('utf-8'),
@@ -45,14 +80,15 @@ class BinanceClient:
         params['signature'] = signature
         return params
 
-    def _get(self, endpoint: str, params: dict = None, signed: bool = False) -> dict:
-        """GET request"""
+    def _request(self, method: str, endpoint: str, params: dict = None,
+                 signed: bool = False, _retry: bool = True) -> dict:
         if params is None:
             params = {}
         if signed:
             params = self._sign(params)
         try:
-            response = requests.get(
+            fn = requests.get if method == "GET" else requests.post
+            response = fn(
                 f"{self.base_url}{endpoint}",
                 params=params,
                 headers=self.headers,
@@ -61,24 +97,30 @@ class BinanceClient:
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            return {"error": str(e)}
+            # Keep Binance's own error code and message. str(e) on an HTTPError is
+            # just "400 Client Error", which hides -1021 and every other reason
+            # the exchange actually rejected the request.
+            body = getattr(getattr(e, "response", None), "text", "") or ""
+            detail = body[:300]
+            if not detail:
+                detail = str(e)
+
+            if signed and _retry and "-1021" in detail:
+                # Clock slipped mid-flight — re-measure and try once more.
+                logger.warning("Binance rejected the timestamp (-1021) — resyncing clock and retrying")
+                self._clock_offset = None
+                return self._request(method, endpoint, params, signed=False, _retry=False)
+
+            logger.error(f"{method} {endpoint} failed: {detail}")
+            return {"error": detail, "status": getattr(e, "response", None) and e.response.status_code}
+
+    def _get(self, endpoint: str, params: dict = None, signed: bool = False) -> dict:
+        """GET request"""
+        return self._request("GET", endpoint, params, signed)
 
     def _post(self, endpoint: str, params: dict = None) -> dict:
         """POST request"""
-        if params is None:
-            params = {}
-        params = self._sign(params)
-        try:
-            response = requests.post(
-                f"{self.base_url}{endpoint}",
-                params=params,
-                headers=self.headers,
-                timeout=10
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
+        return self._request("POST", endpoint, params, signed=True)
 
     def _delete(self, endpoint: str, params: dict = None) -> dict:
         """DELETE request"""

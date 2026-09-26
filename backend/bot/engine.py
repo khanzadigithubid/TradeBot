@@ -48,6 +48,7 @@ class TradingEngine:
             "BINANCE_API_KEY":       cfg.BINANCE_API_KEY,
             "BINANCE_SECRET_KEY":    cfg.BINANCE_SECRET_KEY,
             "TESTNET":               cfg.TESTNET,
+    "PAPER_TRADING":         cfg.PAPER_TRADING,
             "TRADE_QUANTITY_PERCENT":cfg.TRADE_QUANTITY_PERCENT,
             "MAX_OPEN_TRADES":       cfg.MAX_OPEN_TRADES,
             "STOP_LOSS_PERCENT":     cfg.STOP_LOSS_PERCENT,

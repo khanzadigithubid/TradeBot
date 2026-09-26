@@ -4,12 +4,17 @@ End-to-end endpoint smoke test.
 Read-only against real accounts: the engine startup is disabled so no trading
 loop runs, and all file storage is redirected to a temp directory so the
 developer's settings.json / trades.json are never touched.
+
+PAPER_TRADING is forced on. Testnet orders are real orders on Binance's testnet
+exchange, so without this the manual-trade checks below would spend testnet
+funds on every run.
 """
 import os
 import sys
 import tempfile
 
 os.environ.setdefault("TESTNET", "true")
+os.environ["PAPER_TRADING"] = "true"
 os.environ.pop("LIVE_TRADING_ENABLED", None)
 os.environ.pop("API_SECRET", None)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -19,6 +19,12 @@ BINANCE_API_KEY    = os.getenv("BINANCE_API_KEY", "")
 BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")
 TESTNET            = os.getenv("TESTNET", "True").lower() not in ("false", "0", "no")
 
+# When TESTNET is on, orders are sent to Binance's real testnet exchange
+# (testnet.binance.vision) and filled with testnet funds. Set PAPER_TRADING=true
+# to skip the exchange entirely and simulate fills locally — useful for demos
+# and offline work, but nothing is sent to Binance and no real order id exists.
+PAPER_TRADING      = os.getenv("PAPER_TRADING", "False").lower() in ("true", "1", "yes", "on")
+
 # ── Telegram Notifications ─────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")

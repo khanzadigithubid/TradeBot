@@ -79,6 +79,52 @@ class TradeManager:
 
     # ── Quantity ───────────────────────────────────────────────────────────────
 
+    # ── Order routing ──────────────────────────────────────────────────────────
+
+    def _use_paper(self) -> bool:
+        """True when fills should be simulated instead of sent to Binance."""
+        if not self.config.get("TESTNET", True):
+            return False  # live always talks to the real exchange
+        return bool(self.config.get("PAPER_TRADING", False))
+
+    @staticmethod
+    def _fill_price(order: dict, fallback: float) -> float:
+        """
+        Average price Binance actually filled at.
+
+        The ticker price is only an estimate — a market order fills at whatever
+        the book gave, and on testnet it can differ enough to make a recorded
+        P&L meaningless. Prefer the exchange's own numbers.
+        """
+        try:
+            executed = float(order.get("executedQty") or 0)
+            quote    = float(order.get("cummulativeQuoteQty") or 0)
+            if executed > 0 and quote > 0:
+                return quote / executed
+            fills = order.get("fills") or []
+            if fills:
+                total_qty   = sum(float(f["qty"]) for f in fills)
+                total_quote = sum(float(f["qty"]) * float(f["price"]) for f in fills)
+                if total_qty > 0:
+                    return total_quote / total_qty
+            px = float(order.get("price") or 0)
+            if px > 0:
+                return px
+        except (TypeError, ValueError, KeyError, ZeroDivisionError):
+            pass
+        return fallback
+
+    def _simulated_order(self, symbol: str, side: str, quantity: float, price: float) -> dict:
+        return {
+            "orderId":     str(uuid.uuid4())[:8],
+            "symbol":      symbol,
+            "status":      "FILLED",
+            "executedQty": str(quantity),
+            "price":       str(price),
+            "side":        side,
+            "_simulated":  True,
+        }
+
     def get_trade_quantity(self, symbol: str, price: float) -> tuple:
         """
         Size a position from a percentage of the real USDT balance.
@@ -201,16 +247,11 @@ class TradeManager:
         stop_loss, take_profit = self._calculate_sl_tp("BUY", price, signal)
         signal.pop("_symbol", None)
 
-        # Place order
-        if self.config.get("TESTNET", True):
-            order = {
-                "orderId": str(uuid.uuid4())[:8],
-                "symbol":  symbol,
-                "status":  "FILLED",
-                "executedQty": str(quantity),
-                "price":   str(price),
-                "side":    "BUY",
-            }
+        # ── Place order ───────────────────────────────────────────────────────
+        # Paper mode fabricates a fill; every other mode (live and testnet both)
+        # sends the order to Binance and records the exchange's own response.
+        if self._use_paper():
+            order = self._simulated_order(symbol, "BUY", quantity, price)
         else:
             order = self.client.place_market_buy(symbol, quantity)
 
@@ -219,19 +260,23 @@ class TradeManager:
             logger.error(f"BUY order failed: {err}")
             return None
 
+        simulated = bool(order.get("_simulated"))
+        fill_price = self._fill_price(order, price)
+
         trade = {
             "id":           str(uuid.uuid4()),
             "symbol":       symbol,
             "side":         "BUY",
-            "entry_price":  price,
+            "entry_price":  fill_price,
             "quantity":     float(quantity),
             "stop_loss":    stop_loss,
             "take_profit":  take_profit,
-            "peak_price":   price,          # for trailing stop
+            "peak_price":   fill_price,     # for trailing stop
             "status":       "OPEN",
             "confidence":   signal.get("confidence", 0),
             "signals":      signal.get("signals", []),
             "order_id":     order.get("orderId"),
+            "simulated":    simulated,
             "entry_time":   datetime.utcnow().isoformat(),
             "exit_price":   None,
             "exit_time":    None,
@@ -242,7 +287,7 @@ class TradeManager:
 
         self.trades.append(trade)
         self.open_trades[trade["id"]] = trade
-        self._peak_prices[trade["id"]] = price
+        self._peak_prices[trade["id"]] = fill_price
         save_trades(self.trades)
 
         # Telegram + Email + Resend + Discord
@@ -251,7 +296,11 @@ class TradeManager:
         if self.resend_notifier:  self.resend_notifier.trade_opened(trade)
         if self.discord_notifier: self.discord_notifier.trade_opened(trade)
 
-        logger.info(f"✅ BUY {symbol} @ {price} | SL: {stop_loss} | TP: {take_profit}")
+        where = "PAPER" if simulated else ("TESTNET" if self.config.get("TESTNET", True) else "LIVE")
+        logger.info(
+            f"✅ BUY {symbol} @ {fill_price} [{where}] | order {order.get('orderId')} "
+            f"| SL: {stop_loss} | TP: {take_profit}"
+        )
         return trade
 
     # ── Execute SELL ───────────────────────────────────────────────────────────
@@ -266,8 +315,8 @@ class TradeManager:
         symbol   = trade["symbol"]
         quantity = trade["quantity"]
 
-        if self.config.get("TESTNET", True):
-            order = {"orderId": str(uuid.uuid4())[:8], "status": "FILLED", "side": "SELL"}
+        if self._use_paper():
+            order = self._simulated_order(symbol, "SELL", quantity, current_price)
         else:
             order = self.client.place_market_sell(symbol, quantity)
 
@@ -276,16 +325,19 @@ class TradeManager:
             logger.error(f"SELL order failed: {err}")
             return None
 
+        exit_price = self._fill_price(order, current_price)
+
         entry_price  = trade["entry_price"]
-        pnl          = (current_price - entry_price) * quantity
-        pnl_percent  = ((current_price - entry_price) / entry_price) * 100
+        pnl          = (exit_price - entry_price) * quantity
+        pnl_percent  = ((exit_price - entry_price) / entry_price) * 100
 
         trade["status"]       = "CLOSED"
-        trade["exit_price"]   = round(current_price, 8)
+        trade["exit_price"]   = round(exit_price, 8)
         trade["exit_time"]    = datetime.utcnow().isoformat()
         trade["pnl"]          = round(pnl, 4)
         trade["pnl_percent"]  = round(pnl_percent, 2)
         trade["close_reason"] = reason
+        trade["exit_order_id"] = order.get("orderId")
 
         self.open_trades.pop(trade_id, None)
         self._peak_prices.pop(trade_id, None)

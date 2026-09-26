@@ -1,5 +1,10 @@
 """
 Shared pytest fixtures. Everything here is offline — no network calls.
+
+The exchange is hard-blocked at the client level. Testnet orders are real
+orders on Binance's testnet venue, so a test that reached the order path used
+to spend testnet funds on every run (several stray BTC positions accumulated
+before this was caught).
 """
 
 import os
@@ -15,8 +20,44 @@ sys.path.insert(0, str(BACKEND))
 
 # Keep tests deterministic and offline-safe.
 os.environ.setdefault("TESTNET", "true")
+os.environ["PAPER_TRADING"] = "true"
 os.environ.pop("LIVE_TRADING_ENABLED", None)
 os.environ.pop("API_SECRET", None)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _block_real_orders():
+    """
+    Make any real order placement an immediate, loud failure.
+
+    Tests that exercise order routing inject their own fake client, so nothing
+    legitimate needs the real methods. A test that reaches them was about to
+    spend money on a real venue and must fail instead.
+    """
+    from bot.binance_client import BinanceClient
+
+    def _forbidden(self, *args, **kwargs):
+        raise AssertionError(
+            "A test tried to place a real Binance order. Inject a fake client "
+            "or set PAPER_TRADING instead."
+        )
+
+    for name in ("place_market_buy", "place_market_sell",
+                 "place_limit_buy", "place_limit_sell", "place_oco_sell"):
+        setattr(BinanceClient, name, _forbidden)
+
+    from bot import trade_manager as tm_mod
+    tm_mod.PAPER_TRADING = True
+    yield
+
+
+@pytest.fixture(autouse=True)
+def engine_never_places_orders(monkeypatch):
+    """Force paper mode on the live engine object for every single test."""
+    import main
+
+    monkeypatch.setitem(main.engine.config, "TESTNET", True)
+    monkeypatch.setitem(main.engine.config, "PAPER_TRADING", True)
 
 
 def make_candles(n=300, start=100.0, drift=0.0008, noise=0.004, seed=7):
