@@ -180,7 +180,18 @@ async def start_bot(req: BotStartRequest = BotStartRequest()):
         )
 
     if req.symbol:
-        engine.current_symbol = req.symbol
+        sym = _validate_symbol(req.symbol)
+        # A watchlist pair is only guaranteed to be monitorable. Refuse here,
+        # with a clear reason, rather than letting the bot start and then fail
+        # on the first order.
+        if not _tradeable(sym):
+            raise HTTPException(
+                400,
+                f"{sym} is on the watchlist for price monitoring but is not a "
+                f"pair this bot trades. Add it to CRYPTO_PAIRS in "
+                f"backend/bot/config.py to trade it.",
+            )
+        engine.current_symbol = sym
     if req.interval:
         engine.interval = req.interval
     if req.multi_symbol is not None:
@@ -363,6 +374,83 @@ def get_fear_greed():
     """Get Fear & Greed Index"""
     from bot.sentiment import get_fear_greed_index
     return get_fear_greed_index()
+
+
+# ─── Watchlist ────────────────────────────────────────────────────────────────
+
+def _tradeable(symbol: str) -> bool:
+    """
+    Whether the bot can actually trade this pair.
+
+    Being on the watchlist only means "show me its price". Trading needs the
+    pair to be in the configured set AND to exist on the venue, so this is
+    checked rather than assumed from the watchlist itself.
+    """
+    return symbol in cfg.SUPPORTED_PAIRS
+
+
+@router.get("/watchlist")
+def get_watchlist():
+    """
+    The dashboard sidebar list, annotated with whether each pair is tradeable.
+
+    The client is told up front so a monitoring-only pair cannot be mistaken
+    for one the bot will trade.
+    """
+    from bot.watchlist_store import load_watchlist
+    return {
+        "symbols":   load_watchlist(),
+        "tradeable": [s for s in load_watchlist() if _tradeable(s)],
+    }
+
+
+class WatchlistAdd(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=20)
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    @field_validator("symbol")
+    @classmethod
+    def _check(cls, v):
+        return _validate_symbol(v)
+
+
+@router.post("/watchlist")
+def add_to_watchlist(body: WatchlistAdd):
+    """
+    Add a pair to the watchlist.
+
+    Verified against the exchange's 24h ticker so a typo is reported here
+    instead of showing up as a permanently blank row in the sidebar.
+    """
+    from bot.market_data import get_24h_stats
+    from bot.watchlist_store import add_symbol, load_watchlist
+
+    sym = _validate_symbol(body.symbol)
+    try:
+        stats = get_24h_stats(sym)
+        last  = float(stats.get("lastPrice", 0) or 0)
+    except Exception:
+        raise HTTPException(404, f"{sym} was not found on the exchange")
+
+    if not last or last <= 0:
+        raise HTTPException(404, f"{sym} has no price on the exchange")
+
+    try:
+        symbols = add_symbol(sym)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    return {"symbols": symbols, "added": sym, "tradeable": _tradeable(sym)}
+
+
+@router.delete("/watchlist/{symbol}")
+def remove_from_watchlist(symbol: str):
+    from bot.watchlist_store import remove_symbol
+    try:
+        symbols = remove_symbol(_symbol_param(symbol))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"symbols": symbols, "removed": symbol}
 
 
 # ─── Market Data ───────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ build/
 # Sensitive data — NEVER push these
 backend/data/settings.json
 backend/data/trades.json
+backend/data/watchlist.json
 .env
 *.env
 backend/.env

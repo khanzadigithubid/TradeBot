@@ -77,6 +77,12 @@ export const getBulkPrices   = (symbols)           =>
   request(`/market/prices?symbols=${symbols.join(",")}`);
 
 
+// ── Watchlist ──────────────────────────────────────────────────────────────────
+export const getWatchlist    = ()      => request("/watchlist");
+export const addWatchlist    = (symbol) => request("/watchlist", { method: "POST", body: JSON.stringify({ symbol }) });
+export const removeWatchlist = (symbol) => request(`/watchlist/${symbol}`, { method: "DELETE" });
+
+
 // ── Trades ────────────────────────────────────────────────────────────────────
 export const getOpenTrades   = ()         => request("/trades/open");
 export const getTradeHistory = (lim=100)  => request(`/trades/history?limit=${lim}`);

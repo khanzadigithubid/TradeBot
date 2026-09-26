@@ -2288,6 +2288,105 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
 .wl-item:hover        { background: var(--bg-hover); border-left-color: var(--border2); }
 .wl-active            { background: var(--bg-input) !important; border-left-color: var(--blue) !important; }
 
+/* Row wrapper: carries the active state and hosts the remove button so the
+   item itself can stay a plain full-width click target. */
+.wl-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-left: 2px solid transparent;
+}
+.wl-wrap.wl-active   { background: var(--bg-input); border-left-color: var(--blue); }
+.wl-wrap .wl-item     { border-left: none; }
+
+.wl-remove {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition), color var(--transition);
+}
+.wl-wrap:hover .wl-remove { opacity: 1; }
+.wl-remove:hover         { color: var(--red); border-color: var(--red); }
+/* Touch devices have no hover, so the control must stay visible. */
+@media (hover: none) {
+  .wl-remove { opacity: 1; }
+}
+
+.wl-viewonly {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+.wl-wrap:hover .wl-viewonly { opacity: 0; }
+
+.wl-add {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.wl-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+}
+.wl-add-input::placeholder { color: var(--text-dim); }
+.wl-add-input:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+.wl-add-btn {
+  flex-shrink: 0;
+  width: 26px;
+  padding: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.wl-add-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.wl-add-btn:disabled         { opacity: 0.4; cursor: not-allowed; }
+
+.wl-add-error {
+  padding: 5px 10px;
+  color: var(--red);
+  font-size: 10px;
+  line-height: 1.35;
+  border-bottom: 1px solid var(--border);
+}
+
 .wl-left {
   display: flex;
   flex-direction: column;

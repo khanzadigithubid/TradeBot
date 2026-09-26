@@ -7,7 +7,8 @@ import {
 import {
   getBotStatus, startBot, stopBot,
   getTradeStats, getOpenTrades, getSignal,
-  getMarketStats, getSettings, getBulkPrices
+  getMarketStats, getSettings, getBulkPrices,
+  getWatchlist, addWatchlist, removeWatchlist
 } from "../services/api";
 import StatCard         from "../components/StatCard";
 import SignalBadge      from "../components/SignalBadge";
@@ -19,34 +20,48 @@ const PAIRS     = ["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","
 const INTERVALS = ["1m","5m","15m","30m","1h","4h","1d"];
 
 // ── Watchlist Item ─────────────────────────────────────────────────────────────
-function WatchlistItem({ pair, active, onClick, priceData }) {
+function WatchlistItem({ pair, active, onClick, priceData, tradeable, onRemove }) {
   const price  = priceData?.price  ?? null;
   const change = priceData?.change ?? null;
   const pos    = change != null ? change >= 0 : true;
 
   return (
-    <button className={`wl-item ${active ? "wl-active" : ""}`} onClick={onClick}>
-      <div className="wl-left">
-        <span className="wl-pair">
-          {pair.replace("USDT", "")}<span className="wl-usdt">/USDT</span>
+    <div className={`wl-wrap ${active ? "wl-active" : ""}`}>
+      <button className="wl-item" onClick={onClick} title={
+        tradeable
+          ? `Trade ${pair}`
+          : `${pair} is monitored only — this bot is not configured to trade it`
+      }>
+        <div className="wl-left">
+          <span className="wl-pair">
+            {pair.replace("USDT", "")}<span className="wl-usdt">/USDT</span>
+          </span>
+          {price > 0 && (
+            <span className="wl-price">
+              ${price >= 1
+                ? Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                : Number(price).toFixed(6)}
+            </span>
+          )}
+        </div>
+        <div className="wl-right">
+          {active && <div className="wl-dot" />}
+          {change != null && (
+            <span className={`wl-change ${pos ? "wl-pos" : "wl-neg"}`}>
+              {pos ? "+" : ""}{Number(change).toFixed(2)}%
+            </span>
+          )}
+        </div>
+      </button>
+      {!tradeable && (
+        <span className="wl-viewonly" title="Price monitoring only — not tradeable by this bot">
+          VIEW
         </span>
-        {price > 0 && (
-          <span className="wl-price">
-            ${price >= 1
-              ? Number(price).toLocaleString(undefined, { maximumFractionDigits: 2 })
-              : Number(price).toFixed(6)}
-          </span>
-        )}
-      </div>
-      <div className="wl-right">
-        {active && <div className="wl-dot" />}
-        {change != null && (
-          <span className={`wl-change ${pos ? "wl-pos" : "wl-neg"}`}>
-            {pos ? "+" : ""}{Number(change).toFixed(2)}%
-          </span>
-        )}
-      </div>
-    </button>
+      )}
+      <button className="wl-remove" onClick={onRemove} title={`Remove ${pair} from watchlist`}>
+        <X size={11} />
+      </button>
+    </div>
   );
 }
 
@@ -61,10 +76,14 @@ export default function Dashboard({ wsMessage }) {
   const [timeframe,   setTimeframe]   = useState("15m");
   const [btnLoading,  setBtnLoading]  = useState(false);
   const [livePrice,   setLivePrice]   = useState(null);
-  const [allPairs,    setAllPairs]    = useState({ crypto: PAIRS, forex: [] });
+  const [watchlist,  setWatchlist]  = useState(PAIRS);
+  const [tradeable,  setTradeable]  = useState(new Set(PAIRS));
   const [wlPrices,    setWlPrices]    = useState({});
   const [wlOpen,      setWlOpen]      = useState(false);  // mobile watchlist drawer
   const [safety,      setSafety]      = useState(null);   // { effective_testnet, safety }
+  const [newPair,     setNewPair]     = useState("");
+  const [addError,    setAddError]    = useState("");
+  const [adding,      setAdding]      = useState(false);
 
   // ── Fetch main data ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -82,10 +101,6 @@ export default function Dashboard({ wsMessage }) {
     if (mkt.status  === "fulfilled") setMarketStats(mkt.value);
     if (sets.status === "fulfilled") {
       const d = sets.value;
-      setAllPairs({
-        crypto: d.crypto_pairs || d.supported_pairs || PAIRS,
-        forex:  d.forex_pairs  || [],
-      });
       setSafety({
         effective_testnet: d.effective_testnet ?? d.testnet ?? true,
         live_allowed:      d.safety?.live_allowed ?? false,
@@ -93,6 +108,20 @@ export default function Dashboard({ wsMessage }) {
       });
     }
   }, [symbol]);
+
+  // ── Watchlist ─────────────────────────────────────────────────────────────────
+  const fetchWatchlist = useCallback(async () => {
+    try {
+      const d = await getWatchlist();
+      const syms = d.symbols || [];
+      setWatchlist(syms);
+      setTradeable(new Set(d.tradeable || []));
+      // Never leave a stale selection that is no longer on the list.
+      setSymbol(prev => (syms.includes(prev) ? prev : syms[0] || "BTCUSDT"));
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => { fetchWatchlist(); }, [fetchWatchlist]);
 
   useEffect(() => {
     fetchAll();
@@ -102,12 +131,11 @@ export default function Dashboard({ wsMessage }) {
 
   // ── Watchlist bulk prices — har 10 sec ─────────────────────────────────────
   useEffect(() => {
-    const allSymbols = [...allPairs.crypto, ...allPairs.forex];
-    if (!allSymbols.length) return;
+    if (!watchlist.length) return;
 
     async function fetchPrices() {
       try {
-        const data = await getBulkPrices(allSymbols);
+        const data = await getBulkPrices(watchlist);
         setWlPrices(data);
       } catch (_) {}
     }
@@ -115,7 +143,7 @@ export default function Dashboard({ wsMessage }) {
     fetchPrices();
     const id = window.setInterval(fetchPrices, 10000);
     return () => window.clearInterval(id);
-  }, [allPairs]);
+  }, [watchlist]);
 
   // ── WebSocket messages ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -150,10 +178,40 @@ export default function Dashboard({ wsMessage }) {
     setSignal(null);
   }
 
+  async function handleAddPair(e) {
+    e.preventDefault();
+    const value = newPair.trim().toUpperCase();
+    if (!value || adding) return;
+
+    setAdding(true);
+    setAddError("");
+    try {
+      await addWatchlist(value);
+      setNewPair("");
+      await fetchWatchlist();
+    } catch (err) {
+      setAddError(err.message || "Could not add that pair");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleRemovePair(sym) {
+    setAddError("");
+    try {
+      await removeWatchlist(sym);
+      await fetchWatchlist();
+    } catch (err) {
+      setAddError(err.message || "Could not remove that pair");
+    }
+  }
+
   const pnlPos      = (stats?.total_pnl || 0) >= 0;
   const change24    = marketStats ? parseFloat(marketStats.priceChangePercent) : null;
   const chgPos      = change24 != null && change24 >= 0;
-  const allWatchlist = [...allPairs.crypto, ...allPairs.forex];
+  // A watchlist entry only guarantees a price. The bot can only be started on
+  // a pair it is actually configured to trade.
+  const selectedIsTradeable = tradeable.has(symbol);
 
   return (
     <div className="dashboard-root">
@@ -164,14 +222,32 @@ export default function Dashboard({ wsMessage }) {
           <BarChart2 size={13} />
           <span>Watchlist</span>
         </div>
+
+        <form className="wl-add" onSubmit={handleAddPair}>
+          <input
+            className="wl-add-input"
+            value={newPair}
+            onChange={e => { setNewPair(e.target.value); setAddError(""); }}
+            placeholder="Add pair, e.g. AVAXUSDT"
+            maxLength={20}
+            aria-label="Add a pair to the watchlist"
+          />
+          <button className="wl-add-btn" type="submit" disabled={adding || !newPair.trim()}>
+            {adding ? "…" : "+"}
+          </button>
+        </form>
+        {addError && <div className="wl-add-error">{addError}</div>}
+
         <div className="wl-list">
-          {allWatchlist.map(p => (
+          {watchlist.map(p => (
             <WatchlistItem
               key={p}
               pair={p}
               active={symbol === p}
               onClick={() => handleSymbolChange(p)}
               priceData={wlPrices[p]}
+              tradeable={tradeable.has(p)}
+              onRemove={() => handleRemovePair(p)}
             />
           ))}
         </div>
@@ -188,14 +264,32 @@ export default function Dashboard({ wsMessage }) {
                 <X size={16} />
               </button>
             </div>
+
+            <form className="wl-add" onSubmit={handleAddPair}>
+              <input
+                className="wl-add-input"
+                value={newPair}
+                onChange={e => { setNewPair(e.target.value); setAddError(""); }}
+                placeholder="Add pair, e.g. AVAXUSDT"
+                maxLength={20}
+                aria-label="Add a pair to the watchlist"
+              />
+              <button className="wl-add-btn" type="submit" disabled={adding || !newPair.trim()}>
+                {adding ? "…" : "+"}
+              </button>
+            </form>
+            {addError && <div className="wl-add-error">{addError}</div>}
+
             <div className="wl-list">
-              {allWatchlist.map(p => (
+              {watchlist.map(p => (
                 <WatchlistItem
                   key={p}
                   pair={p}
                   active={symbol === p}
                   onClick={() => { handleSymbolChange(p); setWlOpen(false); }}
                   priceData={wlPrices[p]}
+                  tradeable={tradeable.has(p)}
+                  onRemove={() => handleRemovePair(p)}
                 />
               ))}
             </div>
@@ -244,13 +338,20 @@ export default function Dashboard({ wsMessage }) {
             <button
               className={`btn-bot ${botRunning ? "btn-stop" : "btn-start"}`}
               onClick={handleToggle}
-              disabled={btnLoading}
+              disabled={btnLoading || (!botRunning && !selectedIsTradeable)}
+              title={
+                !botRunning && !selectedIsTradeable
+                  ? `${symbol} is monitored for price only — this bot is not configured to trade it`
+                  : undefined
+              }
             >
               {btnLoading
                 ? <span className="spinner" />
                 : botRunning
                   ? <><Square size={12} fill="currentColor" /> Stop</>
-                  : <><Play   size={12} fill="currentColor" /> Start Bot</>
+                  : selectedIsTradeable
+                    ? <><Play size={12} fill="currentColor" /> Start Bot</>
+                    : <><AlertTriangle size={12} /> View only</>
               }
             </button>
           </div>
