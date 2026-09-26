@@ -37,6 +37,16 @@ export default function OpenTradeCard({ trade, currentPrice, onClose }) {
           <TrendingUp size={13} color="var(--green)" />
           <span className="trade-symbol">{trade.symbol}</span>
           <span className="trade-side buy">LONG</span>
+          <span
+            className="trade-venue"
+            title={
+              trade.simulated
+                ? "Paper trade — no order was sent to the exchange"
+                : "Order placed on the exchange"
+            }
+          >
+            {trade.simulated ? "PAPER" : "LIVE ORDER"}
+          </span>
         </div>
         <div className={`tc-pnl-badge ${hasPrice ? (isProfit ? "tc-pnl-pos" : "tc-pnl-neg") : ""}`}>
           {hasPrice ? `${isProfit ? "+" : ""}${pnl.toFixed(4)}` : "—"}

@@ -334,7 +334,7 @@ export default function Dashboard({ wsMessage }) {
             🟡 Live blocked — running on testnet
           </div>
         ) : safety ? (
-          <div className="safety-banner safety-testnet" title="Simulated trading">
+          <div className="safety-banner safety-testnet" title="Binance testnet venue — no real funds">
             🟢 Testnet
           </div>
         ) : null}

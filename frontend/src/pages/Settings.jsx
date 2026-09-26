@@ -196,7 +196,7 @@ export default function Settings() {
 
           {form.testnet
             ? <div className="settings-note">
-                🧪 Testnet ON — using fake funds.
+                🧪 Testnet ON — real orders on Binance's testnet venue, no real funds.
                 &nbsp;<a className="link" href="https://testnet.binance.vision" target="_blank" rel="noreferrer">Get testnet keys →</a>
               </div>
             : <div className="settings-note live-warning">

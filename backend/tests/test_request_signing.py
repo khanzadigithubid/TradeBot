@@ -48,9 +48,38 @@ def test_signed_requests_carry_a_recv_window():
     assert RECV_WINDOW_MS >= 30_000, "5s is too tight for a drifting clock"
 
 
-def test_unsigned_requests_do_not_get_a_signature():
+def test_signing_does_not_mutate_the_callers_params():
+    """
+    The retry path signs the original values again, so _sign must not bake a
+    timestamp/signature into the dict the caller still holds.
+    """
     client = BinanceClient("k", "s", testnet=True)
-    assert "signature" not in client._sign.__wrapped__(client, {}) if hasattr(client._sign, "__wrapped__") else True
+    client._server_time_offset_ms = lambda: 0
+
+    original = {"symbol": "BTCUSDT"}
+    client._sign(original)
+
+    assert "signature" not in original, "the caller's params were signed in place"
+    assert "timestamp" not in original
+    assert "recvWindow" not in original
+
+
+def test_a_resign_uses_the_current_offset():
+    """
+    HMAC is deterministic, so re-signing the same values at the same
+    millisecond gives the same hex. What must change on a retry is the offset
+    used to build the timestamp — that is what actually repairs a -1021.
+    """
+    client = BinanceClient("k", "s", testnet=True)
+
+    client._server_time_offset_ms = lambda: 4_000
+    drifted = client._sign({"symbol": "BTCUSDT"})
+
+    client._server_time_offset_ms = lambda: 0
+    corrected = client._sign({"symbol": "BTCUSDT"})
+
+    assert corrected["timestamp"] < drifted["timestamp"], "the offset was not applied"
+    assert corrected["signature"] != drifted["signature"]
 
 
 # ── clock offset ─────────────────────────────────────────────────────────────
@@ -123,11 +152,13 @@ def test_a_rejected_timestamp_resyncs_and_retries_once(monkeypatch):
     import bot.binance_client as mod
 
     client = BinanceClient("k", "s", testnet=True)
-    seen = []
+    sent = []
+    offsets = iter([4_000, 0])          # first sign is wrong, the resync fixes it
+    client._server_time_offset_ms = lambda: next(offsets)
 
-    def flaky(*a, **kw):
-        seen.append(1)
-        if len(seen) == 1:
+    def flaky(url, *a, **kw):
+        sent.append(dict(kw.get("params") or {}))
+        if len(sent) == 1:
             return _Resp(status=400, text='{"code":-1021,"msg":"Timestamp outside recvWindow"}')
         return _Resp({"balances": [{"asset": "USDT", "free": "5"}]})
 
@@ -136,8 +167,13 @@ def test_a_rejected_timestamp_resyncs_and_retries_once(monkeypatch):
     out = client._get("/v3/account", signed=True)
 
     assert "error" not in out, "a recoverable clock error must not surface as a failure"
-    assert len(seen) == 2, "exactly one retry"
-    assert client._clock_offset is not None, "offset must be re-measured before retrying"
+    assert len(sent) == 2, "exactly one retry"
+    assert client._clock_offset is None or client._clock_offset == 0, \
+        "the cached offset must be discarded so it is re-measured"
+
+    # The retry must be signed against the corrected offset, not the rejected one.
+    assert sent[0]["signature"] != sent[1]["signature"], "the retry reused the rejected signature"
+    assert sent[1]["timestamp"] < sent[0]["timestamp"], "the retry did not apply the corrected clock"
 
 
 def test_retry_happens_only_once(monkeypatch):
@@ -212,11 +248,11 @@ def test_a_clock_error_on_an_order_is_retried_exactly_once(monkeypatch):
 
     client = BinanceClient("k", "s", testnet=True)
     posts = []
+    offsets = iter([4_000, 0])
+    client._server_time_offset_ms = lambda: next(offsets)
 
     def first_stale(url, *a, **kw):
-        if "/v3/time" in url:
-            return _Resp({"serverTime": int(time.time() * 1000)})
-        posts.append(1)
+        posts.append(dict(kw.get("params") or {}))
         if len(posts) == 1:
             return _Resp(status=400, text='{"code":-1021,"msg":"Timestamp outside recvWindow"}')
         return _Resp({"orderId": 7, "status": "FILLED", "executedQty": "0.001"})
@@ -227,3 +263,46 @@ def test_a_clock_error_on_an_order_is_retried_exactly_once(monkeypatch):
 
     assert out.get("orderId") == 7, "a stale timestamp should not lose the order"
     assert len(posts) == 2
+
+    # The order must be retried with a fresh signature, not the rejected one.
+    assert posts[0]["side"] == posts[1]["side"] == "BUY", "the retry lost the order parameters"
+    assert posts[0]["signature"] != posts[1]["signature"], "the retry reused the rejected signature"
+
+
+# ── other signed verbs ───────────────────────────────────────────────────────
+
+def test_cancel_order_is_signed(monkeypatch):
+    """A cancel sent unsigned is rejected by Binance and leaves the order live."""
+    import bot.binance_client as mod
+
+    client = BinanceClient("k", "s", testnet=True)
+    seen = {}
+
+    def fake_delete(url, *a, **kw):
+        seen.update(kw.get("params") or {})
+        return _Resp({"orderId": 5, "status": "CANCELED"})
+
+    monkeypatch.setattr(mod.requests, "delete", fake_delete)
+
+    out = client._delete("/v3/order", {"symbol": "BTCUSDT", "orderId": 5})
+
+    assert "error" not in out
+    assert seen.get("signature"), "cancel was not signed"
+    assert seen.get("timestamp")
+
+
+def test_cancel_order_reports_the_real_rejection_reason(monkeypatch):
+    import bot.binance_client as mod
+
+    client = BinanceClient("k", "s", testnet=True)
+
+    def rejected(url, *a, **kw):
+        if "/v3/time" in url:
+            return _Resp({"serverTime": int(time.time() * 1000)})
+        return _Resp(status=400, text='{"code":-2011,"msg":"Unknown order sent"}')
+
+    monkeypatch.setattr(mod.requests, "delete", rejected)
+
+    out = client._delete("/v3/order", {"symbol": "BTCUSDT", "orderId": 5})
+
+    assert "-2011" in out["error"], "str(HTTPError) hides the reason a cancel failed"

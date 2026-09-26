@@ -879,6 +879,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
   border: 1px solid rgba(0,200,150,0.3);
 }
 
+.trade-venue {
+  background: var(--bg3);
+  color: var(--text-dim);
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+}
+
 .trade-card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
 .trade-row { display: flex; justify-content: space-between; font-size: 12px; }
 .trade-row span:first-child { color: var(--text-dim); }

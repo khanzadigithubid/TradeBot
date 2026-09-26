@@ -160,7 +160,7 @@ export default function ManualTradePanel({ currentSymbol, onTradeExecuted }) {
         <p className="manual-note">
           {isTestnet === false
             ? "🔴 LIVE MODE — real funds at risk. "
-            : "🟡 Testnet — simulated. "}
+            : "🟡 Testnet — real Binance testnet order, no real funds. "}
           Blank quantity = configured % of balance &nbsp;|&nbsp; SL/TP auto-set
         </p>
       </div>
@@ -194,7 +194,7 @@ export default function ManualTradePanel({ currentSymbol, onTradeExecuted }) {
               <div className="modal-row">
                 <span>Mode</span>
                 <strong style={{ color: isTestnet ? "#26a69a" : "#ef5350" }}>
-                  {isTestnet ? "TESTNET (simulated)" : "🔴 LIVE (real funds)"}
+                  {isTestnet ? "TESTNET (Binance testnet)" : "🔴 LIVE (real funds)"}
                 </strong>
               </div>
               <div className="modal-row">

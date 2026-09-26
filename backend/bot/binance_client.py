@@ -68,26 +68,39 @@ class BinanceClient:
         return self._clock_offset
 
     def _sign(self, params: dict) -> dict:
-        """Sign request with HMAC SHA256"""
-        params["timestamp"]  = int(time.time() * 1000) + self._server_time_offset_ms()
-        params["recvWindow"] = RECV_WINDOW_MS
-        query_string = urlencode(params)
+        """Sign request with HMAC SHA256.
+
+        Builds a new dict instead of mutating the caller's. The retry path has to
+        be able to sign the original values again with a corrected timestamp —
+        a params dict that still carries the rejected signature would be sent
+        to the exchange unchanged.
+        """
+        signed = {k: v for k, v in (params or {}).items()
+                  if k not in ("timestamp", "recvWindow", "signature")}
+        signed["timestamp"]  = int(time.time() * 1000) + self._server_time_offset_ms()
+        signed["recvWindow"] = RECV_WINDOW_MS
+        query_string = urlencode(signed)
         signature = hmac.new(
             self.secret_key.encode('utf-8'),
             query_string.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
-        params['signature'] = signature
-        return params
+        signed['signature'] = signature
+        return signed
 
     def _request(self, method: str, endpoint: str, params: dict = None,
                  signed: bool = False, _retry: bool = True) -> dict:
-        if params is None:
-            params = {}
+        params = dict(params or {})
+        # Keep the unsigned values so a clock retry can sign them again.
+        unsigned = dict(params)
         if signed:
             params = self._sign(params)
         try:
-            fn = requests.get if method == "GET" else requests.post
+            fn = {
+                "GET": requests.get,
+                "POST": requests.post,
+                "DELETE": requests.delete,
+            }[method]
             response = fn(
                 f"{self.base_url}{endpoint}",
                 params=params,
@@ -106,10 +119,11 @@ class BinanceClient:
                 detail = str(e)
 
             if signed and _retry and "-1021" in detail:
-                # Clock slipped mid-flight — re-measure and try once more.
+                # Clock slipped mid-flight. Resync and sign the ORIGINAL values
+                # again — resending the rejected signature would fail identically.
                 logger.warning("Binance rejected the timestamp (-1021) — resyncing clock and retrying")
                 self._clock_offset = None
-                return self._request(method, endpoint, params, signed=False, _retry=False)
+                return self._request(method, endpoint, unsigned, signed=True, _retry=False)
 
             logger.error(f"{method} {endpoint} failed: {detail}")
             return {"error": detail, "status": getattr(e, "response", None) and e.response.status_code}
@@ -124,20 +138,7 @@ class BinanceClient:
 
     def _delete(self, endpoint: str, params: dict = None) -> dict:
         """DELETE request"""
-        if params is None:
-            params = {}
-        params = self._sign(params)
-        try:
-            response = requests.delete(
-                f"{self.base_url}{endpoint}",
-                params=params,
-                headers=self.headers,
-                timeout=10
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
+        return self._request("DELETE", endpoint, params, signed=True)
 
     # ─── Market Data ───────────────────────────────────────────────────────────
 
