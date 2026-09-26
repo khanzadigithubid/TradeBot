@@ -411,6 +411,15 @@ html { scroll-behavior: smooth; }
 .stat-card.purple .stat-icon-wrap { background: var(--purple-dim); color: var(--purple); }
 .stat-card.orange .stat-icon-wrap { background: var(--orange-dim); color: var(--orange); }
 
+/* Text column of a stat card. Without this the flex child sized to its content
+   with no min-width:0, so a long value ("Unavailable", a five-figure balance)
+   pushed past the card edge instead of being clipped. */
+.stat-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .stat-title {
   color: var(--text-dim);
   font-size: 11px;
@@ -1224,6 +1233,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
   gap: 8px;
 }
 
+/* Tinted icon chip. The markup supplies background and colour inline, so only
+   the box itself was unstyled — it collapsed to the bare glyph. */
+.sc-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
 .settings-note {
   padding: 10px 13px;
   border-radius: var(--radius-sm);
@@ -1460,6 +1481,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important;
 .reason-signal { background: var(--blue-dim);  color: var(--blue-light); border: 1px solid rgba(55,114,255,0.2); }
 .reason-manual { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(240,185,11,0.2); }
 .time-col { color: var(--text-dim); white-space: nowrap; }
+
+/* Sits beside .time-col in the same thead and was never added, so the Qty
+   column was left un-dimmed, free to wrap, and visible on narrow screens
+   where Time is hidden. */
+.qty-col {
+  color: var(--text-dim);
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 .confidence-bar {
   position: relative;

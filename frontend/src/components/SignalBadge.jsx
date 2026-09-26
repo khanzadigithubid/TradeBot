@@ -14,11 +14,7 @@ export default function SignalBadge({ action, confidence }) {
         <Icon size={15} strokeWidth={2.5} />
         {label}
       </span>
-      {confidence != null && (
-        <div className="confidence-ring-wrap">
-          <ConfidenceRing value={confidence} action={action} />
-        </div>
-      )}
+      {confidence != null && <ConfidenceRing value={confidence} action={action} />}
     </div>
   );
 }

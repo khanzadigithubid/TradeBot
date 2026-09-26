@@ -56,7 +56,7 @@ export default function History() {
   }
 
   return (
-    <div className="page history-page">
+    <div className="page">
 
       {/* Header */}
       <div className="page-header">

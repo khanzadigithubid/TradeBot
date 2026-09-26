@@ -174,7 +174,7 @@ export default function Settings() {
   const allPairs = [...cryptoPairs, ...forexPairs];
 
   return (
-    <div className="page settings-page">
+    <div className="page">
 
       {/* ── Header ── */}
       <div className="page-header">
