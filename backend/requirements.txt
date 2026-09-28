@@ -4,8 +4,17 @@ websockets==12.0
 pydantic==2.7.1
 requests==2.31.0
 httpx==0.27.0
-pandas
-numpy
+
+# Pinned deliberately. Left unpinned, pip resolved pandas on Render and then
+# backtracked through 1.5.2 → 1.4.4 and tried to compile pandas from source,
+# which failed on 'No module named pkg_resources'. Both pins below have wheels
+# for cp311 (Render, Python 3.11) and cp314 (local, Python 3.14):
+#   numpy 2.5.x has no cp311 wheel at all, so 2.4.6 is the newest that works on both.
+# pandas 3.x is a major release, so leaving it to the resolver means local tests
+# can pass on one major version while production runs another.
+pandas==3.0.6
+numpy==2.4.6
+
 python-multipart==0.0.9
 python-dotenv==1.0.1
 gunicorn==21.2.0

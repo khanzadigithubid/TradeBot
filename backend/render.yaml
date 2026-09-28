@@ -4,7 +4,13 @@ services:
     runtime: python
     pythonVersion: "3.11"
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    # Upgrade pip first: the image ships pip 24.0, which predates pandas 3 and
+    # resolved it badly enough to start backtracking. --only-binary stops pip
+    # ever attempting a source build, so a missing wheel fails the deploy in
+    # seconds with a clear message instead of compiling pandas for a minute.
+    buildCommand: >
+      python -m pip install --upgrade pip &&
+      pip install --only-binary=:all: -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --loop asyncio --timeout-keep-alive 75
     envVars:
       - key: PYTHON_VERSION
