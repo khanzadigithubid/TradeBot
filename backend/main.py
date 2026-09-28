@@ -34,6 +34,14 @@ app = FastAPI(
     version="2.1.0",
 )
 
+# Guard the money/config endpoints when API_SECRET is configured.
+app.middleware("http")(auth_middleware)
+
+# CORS is registered LAST on purpose. Starlette runs the most recently added
+# middleware outermost, so this puts CORS outside auth: a rejection from the
+# auth middleware then still carries Access-Control-Allow-Origin, and the
+# browser shows the real 401/503 body instead of an opaque "blocked by CORS
+# policy" with no explanation. The reverse order hid every auth failure.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,9 +50,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
-
-# Guard the money/config endpoints when API_SECRET is configured.
-app.middleware("http")(auth_middleware)
 
 app.include_router(router, prefix="/api")
 

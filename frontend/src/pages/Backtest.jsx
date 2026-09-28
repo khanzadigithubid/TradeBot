@@ -44,11 +44,29 @@ export default function Backtest() {
 
   function handleChange(e) {
     const { name, value, type } = e.target;
-    setForm(f => ({ ...f, [name]: type === "number" ? parseFloat(value) : value }));
+    setForm(f => ({
+      ...f,
+      // Keep an empty number input as "" rather than NaN, so the guard in
+      // handleRun can name the field and the field still renders as empty.
+      [name]: type === "number" ? (value === "" ? "" : parseFloat(value)) : value,
+    }));
   }
 
   async function handleRun(e) {
     e.preventDefault();
+
+    // parseFloat("") is NaN and JSON.stringify serialises NaN as null, so
+    // clearing any numeric field used to fire a request that the API rejected
+    // as a 422 naming no useful field. Check before sending instead.
+    const empty = Object.entries(form)
+      .filter(([, v]) => v === "" || v === null || v === undefined || Number.isNaN(v))
+      .map(([k]) => k.replace(/_/g, " "));
+    if (empty.length) {
+      setResult(null);
+      setError(`Fill in: ${empty.join(", ")}`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);

@@ -33,9 +33,30 @@ function authHeaders() {
   return API_SECRET ? { "X-API-Secret": API_SECRET } : {};
 }
 
+/*
+ * Turn a FastAPI error body into one readable sentence.
+ *
+ * FastAPI sends 422 validation failures as detail: [ {loc, msg, type}, ... ],
+ * an array of objects. Interpolating that straight into an Error produced
+ * "[object Object]", so a wrong backtest limit was reported as noise instead
+ * of the field and its bound.
+ */
+function describeError(detail, status) {
+  if (Array.isArray(detail)) {
+    const parts = detail.map((d) => {
+      const field = Array.isArray(d.loc) ? d.loc.filter((x) => x !== "body").join(".") : "";
+      return field ? `${field}: ${d.msg}` : d.msg;
+    });
+    return parts.length ? parts.join("; ") : `Request failed (${status})`;
+  }
+  if (typeof detail === "string" && detail) return detail;
+  return `Request failed (${status})`;
+}
+
 async function request(endpoint, options = {}) {
+  let res;
   try {
-    const res = await fetch(`${BASE_URL}${endpoint}`, {
+    res = await fetch(`${BASE_URL}${endpoint}`, {
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(),
@@ -43,14 +64,23 @@ async function request(endpoint, options = {}) {
       },
       ...options,
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Request failed" }));
-      throw new Error(err.detail || `Request failed (${res.status})`);
-    }
-    return await res.json();
-  } catch (e) {
-    throw e;
+  } catch {
+    // A blocked CORS preflight or an unreachable host never reaches the
+    // server, so there is no status and no body to read. Name that plainly
+    // instead of surfacing a bare "Failed to fetch".
+    throw new Error(
+      `Cannot reach the backend at ${BASE_URL}. It may be down, still starting up, ` +
+      `or blocking this origin. Check the API URL and that the backend allows CORS.`
+    );
   }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(describeError(body.detail, res.status));
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
 }
 
 // ── Bot Control ────────────────────────────────────────────────────────────────

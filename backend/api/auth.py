@@ -93,6 +93,13 @@ def control_access_detail() -> str:
 
 def is_protected(path: str, method: str) -> bool:
     """Only mutating calls on control paths need the secret."""
+    # A CORS preflight is an OPTIONS that carries no credentials, changes
+    # nothing, and must be answered by CORSMiddleware. Rejecting it here meant
+    # the browser saw a 503 with no Access-Control-Allow-Origin header and
+    # reported "blocked by CORS policy" instead of the real reason, so the
+    # operator never learned that API_SECRET was unset.
+    if method.upper() == "OPTIONS":
+        return False
     path = path.rstrip("/") or "/"
     if path in PROTECTED_PATHS:
         return True
