@@ -33,3 +33,4 @@ Thumbs.db
 backend/forward_log.jsonl
 backend/forward_*.jsonl
 backend/forward_test.pid
+backend/data/cache/
