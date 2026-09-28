@@ -82,6 +82,33 @@ def signal_ema12cross(df):
     return _to_series(a > b, a < b)
 
 
+def _long_only(sig, cond):
+    """Only take long signals while `cond` is true; exit when it flips."""
+    out = sig.copy()
+    out[~cond & (sig == "BUY")] = "HOLD"
+    out[~cond & (sig == "SELL")] = "SELL"
+    return out
+
+
+def signal_regime_donchian(df, n=40, trend=200):
+    """Donchian breakout, but only in a 4h uptrend (close > ema200)."""
+    upper = df.high.rolling(n).max().shift(1)
+    lower = df.low.rolling(n).min().shift(1)
+    trend_up = df.close > ema(df.close, trend)
+    sig = _to_series(df.close > upper, df.close < lower)
+    return _long_only(sig, trend_up)
+
+
+def signal_regime_pullback(df, fast=9, slow=21, trend=200):
+    """EMA cross with strong trend filter and buy on dips."""
+    a, b = ema(df.close, fast), ema(df.close, slow)
+    r, r1 = rsi(df.close), rsi(df.close).shift(1)
+    trend_up = df.close > ema(df.close, trend)
+    buy = (a > b) & (r1 < 45) & (r >= 45)
+    sell = (a < b) | (r > 68)
+    return _long_only(_to_series(buy, sell), trend_up)
+
+
 def _to_series(buy, sell):
     out = pd.Series("HOLD", index=buy.index, dtype=object)
     out[buy & ~sell] = "BUY"
@@ -184,11 +211,13 @@ def main():
     interval = args.interval
 
     builders = {
-        "ema9/21 pullback":  signal_ema_pullback,
-        "rsi<28 reversion":  signal_rsi_reversion,
-        "donchian20 break":  signal_donchian,
-        "bb_lower bounce":   signal_bb_bounce,
-        "ema12/26 cross":    signal_ema12cross,
+        "ema9/21 pullback":  (signal_ema_pullback, {}),
+        "rsi<28 reversion":  (signal_rsi_reversion, {}),
+        "donchian20 break":  (signal_donchian, {}),
+        "bb_lower bounce":   (signal_bb_bounce, {}),
+        "ema12/26 cross":    (signal_ema12cross, {}),
+        "regime donchian40": (signal_regime_donchian, {"sl": 0.04, "tp": 0.08}),
+        "regime pullback":   (signal_regime_pullback, {"sl": 0.04, "tp": 0.08}),
     }
 
     print(f"interval={interval} days={args.days} fee={FEE:.4f} slip={SLIP:.4f} "
@@ -198,21 +227,21 @@ def main():
     print(f"data ready ({time.time() - t0:.0f}s)")
 
     print("\nFULL-PERIOD, after costs:")
-    for name, fn in builders.items():
+    for name, (fn, simkw) in builders.items():
         rows = []
         for s in args.symbols:
-            rows.append(simulate(data[s], fn(data[s])))
+            rows.append(simulate(data[s], fn(data[s]), **simkw))
         report(name, rows)
 
     print("\nWALK-FORWARD (3 folds, after costs):")
-    for name, fn in builders.items():
+    for name, (fn, simkw) in builders.items():
         rows = []
         for s in args.symbols:
             df = data[s]
             folds = np.array_split(np.arange(len(df)), 3)
             for ix in folds:
                 fold = df.iloc[ix].reset_index(drop=True)
-                rows.append(simulate(fold, fn(fold)))
+                rows.append(simulate(fold, fn(fold), **simkw))
         report(name, rows)
 
 
