@@ -62,6 +62,56 @@ def test_get_balance_returns_actual_free_balance():
     assert client.get_balance("USDT") == 250.75
 
 
+# ── get_balance: TTL caching keeps dashboard polling off a blocked host ──────
+
+def test_get_balance_caches_reads_within_ttl():
+    client = BinanceClient("k", "s", testnet=True)
+    calls = {"n": 0}
+
+    def account():
+        calls["n"] += 1
+        return {"balances": [{"asset": "USDT", "free": "10.0"}]}
+
+    client.get_account_info = account
+
+    assert client.get_balance("USDT") == 10.0
+    assert client.get_balance("USDT") == 10.0
+    assert calls["n"] == 1, "second read must come from the cache"
+
+
+def test_get_balance_cache_expires(monkeypatch):
+    client = BinanceClient("k", "s", testnet=True)
+    import itertools
+    nows = itertools.chain([100.0, 100.0, 100.0, 115.0, 115.0], itertools.repeat(999.0))
+    monkeypatch.setattr("bot.binance_client.time.monotonic", lambda: next(nows))
+    calls = {"n": 0}
+
+    def account():
+        calls["n"] += 1
+        return {"balances": [{"asset": "USDT", "free": "10.0"}]}
+
+    client.get_account_info = account
+
+    client.get_balance("USDT")  # miss (t=100), read, store t=100
+    client.get_balance("USDT")  # hit (t=100)
+    client.get_balance("USDT")  # expired (t=115) -> read again, store t=115
+    assert calls["n"] == 2
+
+
+def test_get_balance_cache_is_per_asset():
+    client = BinanceClient("k", "s", testnet=True)
+    client.get_account_info = lambda: {
+        "balances": [
+            {"asset": "BTC", "free": "0.1"},
+            {"asset": "USDT", "free": "5.0"},
+        ]
+    }
+
+    assert client.get_balance("USDT") == 5.0
+    assert client.get_balance("BTC") == 0.1
+    assert client.get_balance("USDT") == 5.0
+
+
 # ── get_trade_quantity: must fail closed ────────────────────────────────────
 
 def _manager(balance):

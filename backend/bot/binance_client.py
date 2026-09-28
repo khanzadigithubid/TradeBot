@@ -9,11 +9,17 @@ import hmac
 import hashlib
 import logging
 import math
+import threading
 import time
 from urllib.parse import urlencode
 from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
+
+# Account reads are cached for a few seconds so a dashboard that polls
+# /api/status and /api/trades/stats several times a second does not hammer a
+# region-blocked endpoint and spam one "Balance read failed" per request.
+BALANCE_CACHE_TTL = 10.0
 
 # Binance rejects a signed request with -1021 when its timestamp falls outside
 # this window. The default is only 5000ms, which a few seconds of clock drift
@@ -78,6 +84,8 @@ class BinanceClient:
         self.testnet = testnet
         self._info_cache: dict = {}
         self._clock_offset: Optional[int] = None
+        self._balance_cache: dict = {}
+        self._balance_lock = threading.Lock()
         # Last known reachability of the exchange, so /api/status and /health
         # can say "this host cannot trade" instead of showing a live-looking
         # dashboard with a silently broken account connection.
@@ -269,7 +277,21 @@ class BinanceClient:
         exchange error) and a float when the read succeeded. A genuine zero
         balance returns 0.0 — callers must be able to tell the two apart, or
         they will size orders from a number that does not exist.
+
+        Reads are cached for BALANCE_CACHE_TTL seconds: dashboard polling must
+        not re-hit a region-blocked account endpoint on every request.
         """
+        now = time.monotonic()
+        with self._balance_lock:
+            hit = self._balance_cache.get(asset)
+            if hit and now - hit[0] < BALANCE_CACHE_TTL:
+                return hit[1]
+        value = self._read_balance(asset)
+        with self._balance_lock:
+            self._balance_cache[asset] = (time.monotonic(), value)
+        return value
+
+    def _read_balance(self, asset: str = "USDT"):
         try:
             account = self.get_account_info()
         except Exception as e:
