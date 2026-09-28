@@ -28,3 +28,8 @@ frontend/.env.local
 .DS_Store
 Thumbs.db
 *.log
+
+# Forward-test records (node disk volume, not git)
+backend/forward_log.jsonl
+backend/forward_*.jsonl
+backend/forward_test.pid
