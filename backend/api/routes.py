@@ -144,7 +144,9 @@ class ManualTradeRequest(BaseModel):
 class BacktestRequest(BaseModel):
     symbol:               str   = "BTCUSDT"
     interval:             str   = "15m"
-    limit:                int   = Field(default=500, ge=50, le=1000)
+    # Was le=1000, which is 16 hours of 15m data — too little to tell a real
+    # edge from noise. The backtester is O(n) now, so longer windows are cheap.
+    limit:                int   = Field(default=3000, ge=50, le=20000)
     initial_balance:      float = Field(default=1000.0, gt=0, le=1e9)
     confidence_threshold: float = Field(default=60.0, ge=0, le=100)
 
@@ -228,8 +230,8 @@ def get_settings():
         "max_open_trades":        engine.config.get("MAX_OPEN_TRADES", 3),
         "stop_loss_percent":      engine.config.get("STOP_LOSS_PERCENT", 2.0),
         "take_profit_percent":    engine.config.get("TAKE_PROFIT_PERCENT", 4.0),
-        "trailing_stop":          engine.config.get("TRAILING_STOP", True),
-        "trailing_stop_percent":  engine.config.get("TRAILING_STOP_PERCENT", 1.0),
+        "trailing_stop":          engine.config.get("TRAILING_STOP", cfg.TRAILING_STOP),
+        "trailing_stop_percent":  engine.config.get("TRAILING_STOP_PERCENT", cfg.TRAILING_STOP_PERCENT),
         "ema_fast":               engine.config.get("EMA_FAST", 9),
         "ema_slow":               engine.config.get("EMA_SLOW", 21),
         "rsi_period":             engine.config.get("RSI_PERIOD", 14),
@@ -726,12 +728,20 @@ def run_backtest(req: BacktestRequest):
     """
     Run a strategy backtest on historical data.
     Returns trades list, equity curve, and performance metrics.
+
+    Costs (BACKTEST_FEE_PERCENT, BACKTEST_SLIPPAGE_PERCENT) and the SELL-signal
+    exit are applied, so the result reflects what the engine would have done.
+    Treat it as one sample, not a verdict: validate a candidate on data the
+    tuning never saw.
     """
     from bot.backtester import run_backtest as _backtest
 
     df = engine.client.get_klines(req.symbol.upper(), req.interval, req.limit)
     if df.empty:
         raise HTTPException(404, f"No data for {req.symbol}")
+
+    if len(df) < 50:
+        raise HTTPException(400, f"Only {len(df)} candles available for {req.symbol}")
 
     bt_config = dict(engine.config)
     bt_config["SYMBOL"] = req.symbol.upper()
@@ -746,6 +756,17 @@ def run_backtest(req: BacktestRequest):
     if "error" in result:
         raise HTTPException(400, result["error"])
 
+    result["candles_used"] = len(df)
+    result["costs"] = {
+        "fee_percent_round_trip": bt_config.get("BACKTEST_FEE_PERCENT", 0.0),
+        "slippage_percent_per_leg": bt_config.get("BACKTEST_SLIPPAGE_PERCENT", 0.0),
+    }
+    result["assumptions"] = [
+        "Exits on stop, target, and SELL signal; the engine does the same.",
+        "No historical sentiment or MTF data, so the live filters are not modelled.",
+        "Long-only: no shorts, no funding, and one open position at a time.",
+        "Fills assumed at the stop/target price, not gapped through it.",
+    ]
     return result
 
 

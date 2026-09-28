@@ -60,10 +60,26 @@ TRADE_QUANTITY_PERCENT  = 10      # Portfolio ka kitna % ek trade mein lagao
 MAX_OPEN_TRADES         = 3       # Ek waqt mein kitni trades open rakhein
 
 # ── Risk Management ────────────────────────────────────────────────────────────
+# Trailing-stop default is OFF, and that is a measured decision, not a guess.
+# Simulated over 180d of 15m candles on 6 symbols, with 0.10% round-trip fees
+# and 0.02%/leg slippage:
+#     trailing 0.5% -> -52.0%      trailing 2.0% ->  -7.2%
+#     trailing 1.0% -> -28.4%      trailing 3.0% ->  -2.8%
+#     trailing off  ->  -1.8%
+# At 1% the trail fired on 98.6% of all exits and almost nothing reached its
+# take-profit: 15m noise is wider than the trail, so it paid fees twice per
+# swing and then re-entered the same noise. Only widen it above the timeframe's
+# own noise band, and re-measure before shipping any change here.
 STOP_LOSS_PERCENT    = 2.0        # 2% stop loss
 TAKE_PROFIT_PERCENT  = 4.0        # 4% take profit
-TRAILING_STOP        = True       # Trailing stop loss enable
-TRAILING_STOP_PERCENT = 1.0       # Trail by 1% below peak
+TRAILING_STOP        = False      # off by default — see the measurements above
+TRAILING_STOP_PERCENT = 3.0       # Trail by 3% below peak when enabled
+
+# ── Backtest Costs ─────────────────────────────────────────────────────────────
+# A backtest that ignores costs flatters any strategy that trades often, and
+# this one trades often. Applied to every simulated round trip.
+BACKTEST_FEE_PERCENT      = 0.10   # round trip (Binance futures taker ~0.05%/side)
+BACKTEST_SLIPPAGE_PERCENT = 0.02   # per leg, always against the trade
 
 # ── AI Strategy Settings ───────────────────────────────────────────────────────
 EMA_FAST      = 9

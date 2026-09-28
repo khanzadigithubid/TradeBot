@@ -495,25 +495,64 @@ def _listed_usdt_symbols() -> tuple:
     return _LISTED_CACHE["symbols"]
 
 
+def _binance_klines(symbol: str, interval: str, limit: int):
+    """
+    Paginated Binance klines. Binance rejects limit > 1000 per request, so
+    anything longer has to walk backwards with endTime.
+
+    This used to send `limit` straight through. Above 1000 Binance returns an
+    error, _try_binance returned None, and get_klines silently fell through to
+    the Kraken fallback below — the caller got a different price series from a
+    different exchange and had no way to know.
+    """
+    MAX = 1000
+    rows: list = []
+    end_time = None
+    remaining = max(1, min(int(limit), 100_000))
+
+    while remaining > 0:
+        params = {
+            "symbol": symbol, "interval": interval,
+            "limit": min(remaining, MAX),
+        }
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        data = _try_binance("klines", params)
+        if not isinstance(data, list) or not data:
+            break
+        rows = data + rows                      # walk backwards, then un-reverse
+        remaining -= len(data)
+        if len(data) < min(params["limit"], MAX):
+            break                                # reached the earliest candle
+        end_time = int(data[0][0]) - 1          # last ms of the previous candle
+
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows, columns=[
+        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+        'close_time', 'quote_volume', 'trades',
+        'taker_buy_base', 'taker_buy_quote', 'ignore'
+    ])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = df[col].astype(float)
+    return df.drop_duplicates(subset='timestamp').sort_values('timestamp').reset_index(drop=True)
+
+
 def get_klines(symbol: str, interval: str = "15m", limit: int = 200) -> pd.DataFrame:
     sym = symbol.upper()
 
-    # Forex — use daily data from frankfurter
+    # Forex - use daily data from frankfurter
     if _is_forex(sym):
         return _get_forex_klines(sym, interval, limit)
 
     # Binance
-    data = _try_binance("klines", {"symbol": sym, "interval": interval, "limit": limit})
-    if data and isinstance(data, list) and len(data) > 0:
-        df = pd.DataFrame(data, columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_volume', 'trades',
-            'taker_buy_base', 'taker_buy_quote', 'ignore'
-        ])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
+    df = _binance_klines(sym, interval, limit)
+    if df is not None and len(df) > 0:
         return df
+
 
     # Kraken OHLC fallback
     kraken_pairs = {

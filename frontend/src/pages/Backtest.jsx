@@ -25,7 +25,7 @@ export default function Backtest() {
   const [form, setForm] = useState({
     symbol:               "BTCUSDT",
     interval:             "15m",
-    limit:                500,
+    limit:                3000,
     initial_balance:      1000,
     confidence_threshold: 60,
   });
@@ -112,9 +112,9 @@ export default function Backtest() {
             <div className="form-group">
               <label>Candles</label>
               <input type="number" name="limit" value={form.limit}
-                onChange={handleChange} min="100" max="1000" step="50"
+                onChange={handleChange} min="100" max="20000" step="50"
                 className="form-input" />
-              <small>More = longer history</small>
+              <small>More = longer history. 1000 candles is only 16h of 15m data — too little to tell an edge from noise.</small>
             </div>
 
             {/* Balance */}
