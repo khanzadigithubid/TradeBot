@@ -149,7 +149,10 @@ async def run(args) -> int:
 def main():
     parser = argparse.ArgumentParser(description="Forward-test the live engine.")
     parser.add_argument("--symbols", nargs="+", default=[
-        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "LINKUSDT"])
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT",
+        "DOGEUSDT", "LINKUSDT", "AVAXUSDT", "DOTUSDT", "LTCUSDT", "UNIUSDT",
+        "ATOMUSDT", "TONUSDT", "NEARUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
+        "INJUSDT", "SUIUSDT"])
     parser.add_argument("--interval", default="15m")
     parser.add_argument("--paper", action="store_true",
                         help="simulate fills locally instead of real testnet orders")
