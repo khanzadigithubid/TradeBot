@@ -103,6 +103,7 @@ async def run(args) -> int:
     engine.config.update({
         "PAPER_TRADING": args.paper,
         "ACTIVE_SYMBOLS": args.symbols,
+        "MULTI_SYMBOL_MODE": True,
         "INTERVAL": args.interval,
     })
     engine.active_symbols = args.symbols
