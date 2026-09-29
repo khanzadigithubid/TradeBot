@@ -11,8 +11,8 @@ if (Test-Path $pidFile) {
     Remove-Item $pidFile -ErrorAction SilentlyContinue
 }
 
-$py = Join-Path $PSScriptRoot "venv\Scripts\python.exe"
-$cmd = "`"$py`" -u tools\forward_test.py --out forward_log.jsonl"
+$runner = Join-Path $PSScriptRoot "_ft_runner.cmd"
+$cmd = 'cmd /c ""' + $runner + '""'
 $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
     CommandLine      = $cmd
     CurrentDirectory = $PSScriptRoot

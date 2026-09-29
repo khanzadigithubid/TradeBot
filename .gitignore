@@ -34,3 +34,6 @@ backend/forward_log.jsonl
 backend/forward_*.jsonl
 backend/forward_test.pid
 backend/data/cache/
+backend/forward_test.log
+backend/forward_test.crash.log
+backend/_watchdog.cmd

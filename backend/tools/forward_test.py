@@ -104,6 +104,11 @@ async def run(args) -> int:
         "PAPER_TRADING": args.paper,
         "ACTIVE_SYMBOLS": args.symbols,
         "MULTI_SYMBOL_MODE": True,
+        # A recorder must never self-halt: opening testnet positions parks USDT
+        # in open trades, which looks like a spot-balance drop and trips the
+        # 5% daily-loss interlock. Disable it for the data run; production uses
+        # its own engine config.
+        "DAILY_LOSS_LIMIT_PERCENT": 0,
         "INTERVAL": args.interval,
     })
     engine.active_symbols = args.symbols
@@ -144,7 +149,9 @@ async def run(args) -> int:
     finally:
         if args.cycles and not stop_task.done():
             stop_task.cancel()
-    return 0
+    # 0 = reached the target cycle count (planned stop); 1 = the engine ran on
+    # its own and exited (e.g. every symbol loop died) so main() can restart it.
+    return 0 if (args.cycles and ft.count >= args.cycles) else 1
 
 
 def main():
@@ -161,7 +168,32 @@ def main():
                         help="stop after N recorded cycles (0 = run forever)")
     parser.add_argument("--out", default="forward_log.jsonl")
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(run(args)))
+
+    crash_log = Path(args.out).with_name("forward_test.crash.log")
+    attempts = 0
+    while True:
+        exit_code = 1
+        try:
+            exit_code = asyncio.run(run(args))
+        except BaseException:
+            # Record silently because stdout may be a null console (detached
+            # launches). The crash file makes restart-vs-crash diagnosis possible.
+            try:
+                import traceback
+                with crash_log.open("a", encoding="utf-8") as fh:
+                    fh.write(f"\n--- {datetime.now(timezone.utc).isoformat()} ---\n")
+                    traceback.print_exc(file=fh)
+            except Exception:
+                pass
+        if exit_code == 0:
+            return 0
+        attempts += 1
+        if attempts > 10:
+            print(f"forward-test: gave up restarting after {attempts} attempts", flush=True)
+            return 1
+        print(f"forward-test: engine exited (code {exit_code}) — restarting in 5s (attempt {attempts})", flush=True)
+        import time as _time
+        _time.sleep(5)
 
 
 if __name__ == "__main__":
